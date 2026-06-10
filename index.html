@@ -18,7 +18,11 @@
   body{font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--bg);line-height:1.5;font-size:15px}
   .topbar{height:4px;background:var(--dl-green)}
   header{padding:18px 28px 0;background:var(--card);border-bottom:1px solid var(--line)}
-  .htop{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .htop{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .header-fetch{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+  .header-fetch>input,.header-fetch>select{padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink)}
+  .header-fetch>input{width:210px}
+  .header-fetch>input:focus,.header-fetch>select:focus{outline:none;border-color:var(--dl-green);box-shadow:0 0 0 3px rgba(134,188,37,.18)}
   header h1{margin:0;font-size:23px;font-weight:700;letter-spacing:-.3px}
   header h1 em{font-style:italic;color:var(--dl-green)}
   .company-tag{font-size:13px;color:var(--ink-2)}
@@ -113,6 +117,8 @@
   .ov-card h4 .pin{width:11px;height:11px;border-radius:50%;display:inline-block}
   .ov-card ul{margin:0;padding-left:18px}.ov-card li{margin-bottom:8px;font-size:14px}
   .ov-card.findings{grid-column:1/-1}
+  .ov-3col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;grid-column:1/-1}
+  @media(max-width:900px){.ov-3col{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -120,6 +126,14 @@
 <header>
   <div class="htop">
     <h1>10-K <em>Studio</em></h1>
+    <div class="header-fetch">
+      <input id="ticker" placeholder="Ticker or company — e.g. AAPL"/>
+      <select id="reportType">
+        <option value="10-K">Latest 10-K</option>
+        <option value="10-Q">Latest 10-Q</option>
+      </select>
+      <button class="b b-primary" id="fetchBtn">Fetch &amp; structure</button>
+    </div>
     <div class="company-tag" id="companyTag">No filing loaded</div>
   </div>
   <nav class="tabs" id="tabs">
@@ -130,7 +144,7 @@
     <button data-tab="cf">Cash flow</button>
   </nav>
 </header>
-<div class="drawer" id="drawer">
+<div class="drawer collapsed" id="drawer">
   <div class="drawer-head" id="drawerHead">
     <div class="dot"></div>
     <h2>Source &amp; figures</h2>
@@ -138,20 +152,8 @@
   </div>
   <div class="drawer-body">
     <div>
-      <div class="fetch">
-        <div class="frow">
-          <input id="ticker" placeholder="Company name or ticker — e.g. Apple or AAPL"/>
-          <select id="reportType">
-            <option value="10-K">Latest 10-K (annual)</option>
-            <option value="10-Q">Latest 10-Q (quarterly)</option>
-          </select>
-        </div>
-        <div class="frow">
-          <input id="period" placeholder="Specific period (optional) — e.g. FY2024 or Q2 2025"/>
-          <button class="b b-primary" id="fetchBtn">Fetch &amp; structure</button>
-        </div>
-        <div class="hint">Claude looks the filing up on SEC EDGAR — no download needed. Best-effort retrieval; verify figures against the filing.</div>
-      </div>
+      <div style="margin-bottom:10px"><input id="period" placeholder="Specific period (optional) — e.g. FY2024 or Q2 2025" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:13px"/></div>
+      <div class="hint" style="margin-top:0;margin-bottom:10px">Filter by period above (optional). Claude fetches from SEC EDGAR — verify figures against the filing.</div>
       <div class="or-sep"><span>or paste it yourself</span></div>
       <textarea id="src" placeholder="Paste the 10-K — at minimum the Statements of Operations, Balance Sheets, Cash Flows, and the segment / geography notes. Pasting the whole filing works too; the most recent fiscal year is used."></textarea>
       <div class="row">
@@ -216,7 +218,7 @@
     <div class="kpis" id="cfKpis"></div>
     <div class="chips" id="cfModes"></div>
     <div class="warn" id="cfWarn"></div>
-    <div class="chartcard"><svg class="viz" id="cfChart" viewBox="0 0 1160 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div class="chartcard"><svg class="viz" id="cfChart" viewBox="0 0 1160 580" preserveAspectRatio="xMidYMid meet"></svg></div>
     <div class="legend">
       <span><i style="background:#86BC25"></i>Cash in</span><span><i style="background:#C0392B"></i>Cash out</span><span><i style="background:#5b5b5b"></i>Activity subtotal</span><span><i style="background:#4E7D1C"></i>Net change</span>
     </div>
@@ -234,7 +236,7 @@ const model={
   company:'',period:'',priorPeriod:'',currency:'USD',units:'millions',
   pnl:{revenue:0,costOfRevenue:0,operatingExpenses:[],nonOperating:[],incomeTax:0,reportedNetIncome:null},
   prior:{revenue:0,costOfRevenue:0,operatingIncome:0,netIncome:0},
-  segments:[],geographies:[],
+  segments:[],geographies:[],productCategories:[],channelRevenue:[],
   bs:{currentAssets:[],nonCurrentAssets:[],currentLiabilities:[],nonCurrentLiabilities:[],equity:[]},
   bsPrior:{totalAssets:0,totalLiabilities:0,totalEquity:0,accountsReceivable:0,accountsPayable:0},
   cf:{operating:[],investing:[],financing:[],fxEffect:0,beginningCash:0,endingCash:0,reportedNetChange:null},
@@ -303,6 +305,8 @@ function adopt(p){
   model.prior={revenue:num(pr.revenue),costOfRevenue:num(pr.costOfRevenue),operatingIncome:num(pr.operatingIncome),netIncome:num(pr.netIncome)};
   model.segments=(p.segments||[]).map(x=>({name:x.name||'Segment',revenue:num(x.revenue),operatingIncome:x.operatingIncome==null?null:num(x.operatingIncome)}));
   model.geographies=(p.geographies||[]).map(x=>({name:x.name||'Region',revenue:num(x.revenue)}));
+  model.productCategories=(p.productCategories||[]).map(x=>({name:x.name||'Category',revenue:num(x.revenue)}));
+  model.channelRevenue=(p.channelRevenue||[]).map(x=>({name:x.name||'Channel',revenue:num(x.revenue)}));
   const B=p.balanceSheet||{};
   const mapLI=a=>(a||[]).map(x=>({name:x.name||'Item',value:num(x.value)}));
   model.bs={currentAssets:mapLI(B.currentAssets),nonCurrentAssets:mapLI(B.nonCurrentAssets),
@@ -336,6 +340,8 @@ const SYS=[
 '"pnlPrior":{"revenue":0,"costOfRevenue":0,"operatingIncome":0,"netIncome":0},',
 '"segments":[{"name":"","revenue":0,"operatingIncome":null}],',
 '"geographies":[{"name":"","revenue":0}],',
+'"productCategories":[{"name":"","revenue":0}],',
+'"channelRevenue":[{"name":"","revenue":0}],',
 '"balanceSheet":{"currentAssets":[{"name":"","value":0}],"nonCurrentAssets":[{"name":"","value":0}],"currentLiabilities":[{"name":"","value":0}],"nonCurrentLiabilities":[{"name":"","value":0}],"equity":[{"name":"","value":0}]},',
 '"balanceSheetPrior":{"totalAssets":0,"totalLiabilities":0,"totalEquity":0,"accountsReceivable":0,"accountsPayable":0},',
 '"cashFlow":{"operating":[{"name":"","value":0}],"investing":[{"name":"","value":0}],"financing":[{"name":"","value":0}],"fxEffect":0,"beginningCash":0,"endingCash":0,"netChange":0},',
@@ -355,6 +361,8 @@ const SYS=[
 '- profile.positioning = the company PLUS its main competitors (4-6 total, include the company by its common name), each scored cost 0-100 (0=budget/low price, 100=premium/high price) and quality 0-100 (0=low, 100=high). Estimates from general knowledge are fine.',
 '- profile.marketShareBreakdown = approximate market share percent for the company and its top competitors in its core market (include the company itself; 3-6 entries). The viewer adds an "All other" remainder automatically, so they need not sum to 100.',
 '- narrative: YOUR OWN concise analysis in your own words (never copy sentences from the filing). headline ~10 words; summary 2-3 sentences; findings 4-6 short points; outlook 2-4; risks 2-4; capitalAllocation 2-3 or [].',
+'- productCategories: ONLY if the filing explicitly discloses revenue by product line/category (e.g. iPhone/Mac/iPad/Services for Apple; Cloud/Productivity/More Personal Computing for Microsoft). Do NOT duplicate what is already in segments or geographies. Return [] if not separately disclosed.',
+'- channelRevenue: ONLY if the filing discloses revenue by sales channel (e.g. direct, partner, retail, online, wholesale). Return [] if not disclosed.',
 '- If asked to find a company\'s filing, use web search on sec.gov / EDGAR to locate and read the actual filing before extracting; prefer the primary filing over aggregators.',
 'Return only the JSON.'
 ].join('\n');
@@ -488,6 +496,8 @@ function buildGraph(mode){
   }
   if(mode==='segment'){const r=N('Total revenue','revenue');model.segments.forEach(s=>L(N(s.name,'segment'),r,num(s.revenue),'segment'));cascade(r);}
   else if(mode==='geography'){const r=N('Total revenue','revenue');model.geographies.forEach(g=>L(N(g.name,'segment'),r,num(g.revenue),'segment'));cascade(r);}
+  else if(mode==='product'){const r=N('Total revenue','revenue');model.productCategories.forEach(pc=>L(N(pc.name,'segment'),r,num(pc.revenue),'segment'));cascade(r);}
+  else if(mode==='channel'){const r=N('Total revenue','revenue');model.channelRevenue.forEach(ch=>L(N(ch.name,'segment'),r,num(ch.revenue),'segment'));cascade(r);}
   else if(mode==='segmentpnl'){
     const oi=N('Operating income','profit');let sum=0;
     model.segments.forEach(s=>{const sn=N(s.name,'segment'),rev=num(s.revenue),sOI=Math.max(num(s.operatingIncome),0),cost=rev-num(s.operatingIncome);
@@ -526,14 +536,15 @@ function renderSankey(){
     .each(function(d){const left=d.x0<W/2;const t=d3.select(this);t.append('tspan').text(d.name);
       t.append('tspan').attr('x',left?d.x1+9:d.x0-9).attr('dy','1.25em').attr('font-weight',400).attr('font-size',12).attr('fill','#555').text(fmt(d.value));});
 }
-const MODE_LABEL={consolidated:'Consolidated',segment:'Revenue by segment',geography:'Revenue by geography',segmentpnl:'Segment P&L'};
+const MODE_LABEL={consolidated:'Consolidated',segment:'By segment',geography:'By geography',product:'By product',channel:'By channel',segmentpnl:'Segment P&L'};
 function pnlModeAvail(){return{consolidated:true,segment:model.segments.length>0,geography:model.geographies.length>0,
+  product:(model.productCategories||[]).length>0,channel:(model.channelRevenue||[]).length>0,
   segmentpnl:model.segments.length>0&&model.segments.every(s=>s.operatingIncome!=null&&s.operatingIncome!=='')};}
 function renderPnlModes(){
   const av=pnlModeAvail();if(!av[state.pnlMode])state.pnlMode='consolidated';
   const bar=$('#pnlModes');bar.innerHTML='';
   Object.keys(MODE_LABEL).forEach(k=>{const b=document.createElement('button');b.className='chip'+(state.pnlMode===k?' active':'');
-    b.textContent=MODE_LABEL[k];b.disabled=!av[k];if(!av[k])b.title=k==='segmentpnl'?'Needs operating income per segment':'Not disclosed';
+    b.textContent=MODE_LABEL[k];b.disabled=!av[k];if(!av[k])b.title=k==='segmentpnl'?'Needs operating income per segment':'Not disclosed in this filing';
     b.onclick=()=>{if(av[k]){state.pnlMode=k;renderPnlModes();renderSankey();}};bar.appendChild(b);});
 }
 function renderPnlKpis(){
@@ -551,8 +562,11 @@ function renderPnlWarn(){
   else if(P.netIncome<0)is.push('Net loss this period — the cascade clamps where flows go negative.');
   if(P.reportedNetIncome!=null&&P.netIncome!==0&&Math.abs(P.reportedNetIncome-P.netIncome)>Math.max(2,Math.abs(P.reportedNetIncome)*.02))
     is.push('Computed net income '+fmt(P.netIncome)+' differs from reported '+fmt(P.reportedNetIncome)+' — check the line items.');
-  if(state.pnlMode==='segment'||state.pnlMode==='geography'){const arr=state.pnlMode==='segment'?model.segments:model.geographies;
-    const s=arr.reduce((a,x)=>a+num(x.revenue),0);if(P.revenue>0&&Math.abs(s-P.revenue)>P.revenue*.02)is.push((state.pnlMode==='segment'?'Segment':'Geography')+' revenue sums to '+fmt(s)+' vs total '+fmt(P.revenue)+' — add an eliminations row.');}
+  if(['segment','geography','product','channel'].includes(state.pnlMode)){
+    const modeArr={segment:model.segments,geography:model.geographies,product:model.productCategories||[],channel:model.channelRevenue||[]};
+    const modeLabel={segment:'Segment',geography:'Geography',product:'Product',channel:'Channel'};
+    const arr=modeArr[state.pnlMode]||[];
+    const s=arr.reduce((a,x)=>a+num(x.revenue),0);if(P.revenue>0&&Math.abs(s-P.revenue)>P.revenue*.02)is.push(modeLabel[state.pnlMode]+' revenue sums to '+fmt(s)+' vs total '+fmt(P.revenue)+' — add an eliminations row.');}
   toggleWarn(w,is);
 }
 function bsLeaves(arr,cat,pal,counter){return arr.filter(x=>num(x.value)>0).map(x=>{const c={name:x.name,value:Math.abs(num(x.value)),cat,fill:pal[counter.i%pal.length]};counter.i++;return c;});}
@@ -580,17 +594,22 @@ function renderTreemap(){
     g.append('rect').attr('x',cn.x0).attr('y',cn.y0).attr('width',cn.x1-cn.x0).attr('height',cn.y1-cn.y0)
       .attr('fill','none').attr('stroke',col).attr('stroke-width',1.5).attr('rx',5);
     const catTotal=cn.data.cat==='asset'?b.totalAssets:cn.data.cat==='liability'?b.totalLiabilities:b.totalEquity;
-    g.append('text').attr('x',cn.x0+8).attr('y',cn.y0+17).attr('font-size',14).attr('font-weight',700).attr('fill',col)
+    g.append('text').attr('x',cn.x0+8).attr('y',cn.y0+14).attr('font-size',12).attr('font-weight',700).attr('fill',col)
       .text(cn.data.name+' · '+fmt(catTotal));
-    (cn.children||[]).forEach(sn=>{if(sn.children)g.append('text').attr('x',sn.x0+6).attr('y',sn.y0+12).attr('font-size',10.5).attr('font-weight',600).attr('fill','#777').text(sn.data.name);});
+    (cn.children||[]).forEach(sn=>{if(sn.children)g.append('text').attr('x',sn.x0+5).attr('y',sn.y0+11).attr('font-size',9.5).attr('font-weight',600).attr('fill','#777').text(sn.data.name);});
   });
   const leaf=g.selectAll('g.leaf').data(root.leaves()).join('g').attr('transform',d=>'translate('+d.x0+','+d.y0+')');
   leaf.append('rect').attr('width',d=>Math.max(0,d.x1-d.x0)).attr('height',d=>Math.max(0,d.y1-d.y0)).attr('fill',d=>d.data.fill).attr('rx',3).attr('opacity',.92)
     .append('title').text(d=>d.data.name+'\n'+fmt(d.value));
-  leaf.each(function(d){const w=d.x1-d.x0,h=d.y1-d.y0;if(w<54||h<26)return;const t=d3.select(this);
-    const maxc=Math.floor(w/6.7);const name=d.data.name.length>maxc?d.data.name.slice(0,maxc-1)+'…':d.data.name;
-    t.append('text').attr('x',7).attr('y',16).attr('font-size',11.5).attr('font-weight',600).attr('fill','#fff').text(name);
-    t.append('text').attr('x',7).attr('y',31).attr('font-size',11).attr('fill','rgba(255,255,255,.9)').text(fmt(d.value));});
+  leaf.each(function(d){const w=d.x1-d.x0,h=d.y1-d.y0;if(w<38||h<20)return;const t=d3.select(this);
+    const fs=Math.min(10,Math.max(8,w/14));
+    const maxc=Math.floor(w/5.6);
+    const words=d.data.name.split(/\s+/);let lines=[],cur='';
+    words.forEach(word=>{const try_=cur?cur+' '+word:word;if(try_.length<=maxc)cur=try_;else{if(cur)lines.push(cur);cur=word.length>maxc?word.slice(0,maxc-1)+'…':word;}});
+    if(cur)lines.push(cur);if(lines.length>2){lines=lines.slice(0,2);lines[1]=lines[1].length>maxc?lines[1].slice(0,maxc-1)+'…':lines[1];}
+    const nameEl=t.append('text').attr('font-size',fs).attr('font-weight',600).attr('fill','#fff');
+    lines.forEach((line,i)=>nameEl.append('tspan').attr('x',5).attr('y',12+(i*11)).text(line));
+    const valY=12+(lines.length*11);if(valY+9<h)t.append('text').attr('x',5).attr('y',valY).attr('font-size',fs-0.5).attr('fill','rgba(255,255,255,.88)').text(fmt(d.value));});
 }
 function renderBsKpis(){
   const b=model.bs,bp=model.bsPrior,P=model.pnl,pr=model.prior;
@@ -632,7 +651,7 @@ function renderWaterfall(){
   if(!c.operating.length&&!c.investing.length&&!c.financing.length){placeholder(svg,'0 0 1160 440','No cash flow yet');return;}
   svg.selectAll('*').remove();
   const bars=buildWaterfall();
-  const W=1160,H=560,mL=64,mR=20,mT=58,mB=120;svg.attr('viewBox','0 0 '+W+' '+H);
+  const W=1160,H=580,mL=64,mR=20,mT=58,mB=148;svg.attr('viewBox','0 0 '+W+' '+H);
   const vals=[0];bars.forEach(b=>{vals.push(b.y0,b.y1);});
   const min=Math.min.apply(null,vals),max=Math.max.apply(null,vals),pad=(max-min)*.08||1;
   const y=d3.scaleLinear().domain([min-pad,max+pad]).range([H-mB,mT]);
@@ -653,8 +672,8 @@ function renderWaterfall(){
     g.append('rect').attr('x',x(i)).attr('y',y(top)).attr('width',bw).attr('height',Math.max(1.5,y(bot)-y(top))).attr('fill',col).attr('rx',2).attr('opacity',b.type==='delta'?.95:1)
       .append('title').text(b.label+'\n'+fmt(b.value)+(model.pnl.revenue>0?' ('+(b.value/model.pnl.revenue*100).toFixed(1)+'% of rev)':''));
     g.append('text').attr('x',x(i)+bw/2).attr('y',y(top)-5).attr('text-anchor','middle').attr('font-size',10.5).attr('font-weight',600).attr('fill',b.value<0?'#b0392b':'#3c7a12').text((b.value>=0?'+':'')+fmt(b.value));
-    const lbl=b.label.length>16?b.label.slice(0,15)+'…':b.label;
-    g.append('text').attr('transform','translate('+(x(i)+bw/2)+','+(H-mB+12)+') rotate(-32)').attr('text-anchor','end').attr('font-size',10.5).attr('font-weight',b.type==='delta'?400:700).attr('fill','#444').text(lbl)
+    const lbl=b.label.length>24?b.label.slice(0,23)+'…':b.label;
+    g.append('text').attr('transform','translate('+(x(i)+bw/2)+','+(H-mB+10)+') rotate(-52)').attr('text-anchor','end').attr('font-size',9.5).attr('font-weight',b.type==='delta'?400:700).attr('fill','#444').text(lbl)
       .append('title').text(b.label);
   });
 }
@@ -819,17 +838,19 @@ function renderOverview(){
   const head=n&&n.headline?n.headline:(model.company+': '+(grRev!=null&&grRev>=0?'revenue up':'revenue down')+' year over year');
   const summary=n&&n.summary?n.summary:autoSummary();
   const rings='<svg class="rings" viewBox="0 0 200 200"><circle cx="120" cy="80" r="78" fill="none" stroke="#86BC25" stroke-width="1.2" opacity=".4"/><circle cx="120" cy="80" r="56" fill="none" stroke="#00A3E0" stroke-width="1.2" opacity=".35"/><circle cx="120" cy="80" r="34" fill="none" stroke="#86EB22" stroke-width="1.2" opacity=".35"/></svg>';
-  const cards=[];
-  if(n&&n.findings&&n.findings.length)cards.push(ovCard('Largest findings','#86BC25',n.findings,'findings'));
-  if(n&&n.outlook&&n.outlook.length)cards.push(ovCard('Outlook','#00A3E0',n.outlook));
-  if(n&&n.risks&&n.risks.length)cards.push(ovCard('Key risks','#C0392B',n.risks));
-  if(n&&n.capitalAllocation&&n.capitalAllocation.length)cards.push(ovCard('Capital allocation','#E8A317',n.capitalAllocation));
-  if(!cards.length)cards.push(ovCard('Highlights','#86BC25',autoFindings(),'findings'));
+  let gridInner='';
+  if(n&&n.findings&&n.findings.length)gridInner+=ovCard('Largest findings','#86BC25',n.findings,'findings');
+  const rowCards=[];
+  if(n&&n.outlook&&n.outlook.length)rowCards.push(ovCard('Outlook','#00A3E0',n.outlook));
+  if(n&&n.risks&&n.risks.length)rowCards.push(ovCard('Key risks','#C0392B',n.risks));
+  if(n&&n.capitalAllocation&&n.capitalAllocation.length)rowCards.push(ovCard('Capital allocation','#E8A317',n.capitalAllocation));
+  if(rowCards.length)gridInner+='<div class="ov-3col">'+rowCards.join('')+'</div>';
+  if(!gridInner)gridInner=ovCard('Highlights','#86BC25',autoFindings(),'findings');
   const snapHtml=snap.map(c=>{let d='';if(c.g!=null){const cl=c.g>=0?'pos':'neg';d='<div class="kpi-delta '+cl+'">'+(c.g>=0?'▲':'▼')+' '+Math.abs(c.g).toFixed(1)+'% YoY</div>';}else if(c.signed!=null){const cl=c.signed>=0?'pos':'neg';d='<div class="kpi-delta '+cl+'">'+(c.signed>=0?'net inflow':'net outflow')+'</div>';}return '<div class="kpi"><div class="kpi-label">'+c.label+'</div><div class="kpi-val">'+c.val+'</div>'+d+'</div>';}).join('');
   p.innerHTML='<div class="ov-hero">'+rings+'<div class="ov-eyebrow">'+esc(model.period||'Latest fiscal year')+' · 10-K summary</div>'+
     '<div class="ov-headline">'+esc(head)+'</div><div class="ov-summary">'+esc(summary)+'</div></div>'+
     '<div class="kpis" style="margin-top:16px">'+snapHtml+'</div>'+
-    '<div class="ov-grid">'+cards.join('')+'</div>'+
+    '<div class="ov-grid">'+gridInner+'</div>'+
     (n?'':'<div class="hint" style="margin-top:14px">Tip: the written overview (findings, outlook, risks) is generated when you structure a filing with Claude. These highlights are derived from the numbers you entered.</div>');
 }
 function gridRows(group,cols){
@@ -950,7 +971,7 @@ $('#fetchBtn').addEventListener('click',fetchFiling);
 $('#ticker').addEventListener('keydown',e=>{if(e.key==='Enter')fetchFiling();});
 function buildExport(){const m=model;return {company:m.company,period:m.period,priorPeriod:m.priorPeriod,currency:m.currency,units:m.units,
   pnl:{revenue:m.pnl.revenue,costOfRevenue:m.pnl.costOfRevenue,operatingExpenses:m.pnl.operatingExpenses,nonOperating:m.pnl.nonOperating,incomeTax:m.pnl.incomeTax,netIncome:m.pnl.reportedNetIncome},
-  pnlPrior:m.prior,segments:m.segments,geographies:m.geographies,
+  pnlPrior:m.prior,segments:m.segments,geographies:m.geographies,productCategories:m.productCategories,channelRevenue:m.channelRevenue,
   balanceSheet:{currentAssets:m.bs.currentAssets,nonCurrentAssets:m.bs.nonCurrentAssets,currentLiabilities:m.bs.currentLiabilities,nonCurrentLiabilities:m.bs.nonCurrentLiabilities,equity:m.bs.equity},
   balanceSheetPrior:m.bsPrior,
   cashFlow:{operating:m.cf.operating,investing:m.cf.investing,financing:m.cf.financing,fxEffect:m.cf.fxEffect,beginningCash:m.cf.beginningCash,endingCash:m.cf.endingCash,netChange:m.cf.reportedNetChange},
