@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>10-K Studio</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300;0,400;0,600;0,700;1,600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3-sankey/0.12.3/d3-sankey.min.js"></script>
+<style>
+  :root{
+    --dl-green:#86BC25; --dl-green-dark:#4E7D1C; --dl-blue:#00A3E0; --dl-blue-dark:#005587;
+    --dl-amber:#E8A317; --dl-red:#C0392B; --ink:#282728; --ink-2:#5a5a5a; --line:#E6E6E6;
+    --bg:#F4F6F2; --card:#FFFFFF;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--bg);line-height:1.5;font-size:15px}
+  .topbar{height:4px;background:var(--dl-green)}
+  header{padding:18px 28px 0;background:var(--card);border-bottom:1px solid var(--line)}
+  .htop{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  header h1{margin:0;font-size:23px;font-weight:700;letter-spacing:-.3px}
+  header h1 em{font-style:italic;color:var(--dl-green)}
+  .company-tag{font-size:13px;color:var(--ink-2)}
+  .company-tag b{color:var(--ink)}
+  nav.tabs{display:flex;gap:4px;margin-top:14px}
+  nav.tabs button{background:none;border:none;border-bottom:3px solid transparent;padding:10px 16px;font-family:inherit;font-size:14px;font-weight:600;color:var(--ink-2);cursor:pointer}
+  nav.tabs button:hover{color:var(--ink)}
+  nav.tabs button.active{color:var(--dl-green-dark);border-bottom-color:var(--dl-green)}
+  .drawer{background:var(--card);border-bottom:1px solid var(--line)}
+  .drawer-head{display:flex;align-items:center;gap:10px;padding:11px 28px;cursor:pointer;user-select:none}
+  .drawer-head .dot{width:13px;height:13px;border-radius:50%;border:2px solid var(--dl-green)}
+  .drawer-head h2{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-2);margin:0;flex:1}
+  .chev{transition:.15s;color:var(--ink-2)}
+  .drawer.collapsed .chev{transform:rotate(-90deg)}
+  .drawer-body{padding:0 28px 18px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .drawer.collapsed .drawer-body{display:none}
+  @media(max-width:820px){.drawer-body{grid-template-columns:1fr}}
+  textarea{width:100%;min-height:120px;resize:vertical;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;color:var(--ink)}
+  textarea:focus,input:focus,select:focus{outline:none;border-color:var(--dl-green);box-shadow:0 0 0 3px rgba(134,188,37,.18)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  button.b{font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border-radius:7px;border:1px solid transparent;padding:9px 14px;transition:.12s}
+  .b-primary{background:var(--dl-green);color:#fff}.b-primary:hover{background:#75A521}.b-primary:disabled{background:#bcd99a;cursor:default}
+  .b-ghost{background:#fff;border-color:var(--line);color:var(--ink)}.b-ghost:hover{border-color:var(--dl-green);color:var(--dl-green-dark)}
+  .b-sm{padding:5px 9px;font-size:12px}
+  .hint{font-size:12px;color:var(--ink-2);margin-top:8px}
+  .status{font-size:13px;margin-top:10px;padding:9px 11px;border-radius:7px;display:none}
+  .status.show{display:block}
+  .status.err{background:#fdecea;color:#9b1b12;border:1px solid #f5c6c0}
+  .status.ok{background:#eef6e1;color:#3c5e12;border:1px solid #cfe6a3}
+  .status.info{background:#e7f5fb;color:#055575;border:1px solid #bfe6f5}
+  input[type=file]{display:none}
+  .fetch .frow{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .fetch .frow>input,.fetch .frow>select{flex:1;min-width:130px;padding:9px 10px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:13px}
+  .fetch .frow>button{flex:0 0 auto}
+  .or-sep{display:flex;align-items:center;text-align:center;color:#9a9a9a;font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 10px}
+  .or-sep::before,.or-sep::after{content:"";flex:1;height:1px;background:var(--line)}
+  .or-sep span{padding:0 10px}
+  .field{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .field label{flex:0 0 130px;font-size:12.5px;color:var(--ink-2)}
+  .field input,.field select{flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:13px;min-width:0}
+  h3.eh{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:16px 0 6px}
+  table.grid{width:100%;border-collapse:collapse}
+  table.grid th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2);text-align:left;font-weight:600;padding:2px 4px}
+  table.grid td{padding:2px 3px}
+  table.grid input{width:100%;padding:6px 7px;border:1px solid var(--line);border-radius:5px;font-family:inherit;font-size:12.5px;min-width:0}
+  table.grid input.num{text-align:right}
+  .delrow{background:#fff;border:1px solid var(--line);color:#b0392b;width:26px;height:30px;border-radius:5px;padding:0;font-size:15px;cursor:pointer}
+  .delrow:hover{background:#fdecea;border-color:#e4b4ae}
+  .subtotals{margin-top:12px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .subtotals div{display:flex;justify-content:space-between;padding:7px 12px;font-size:13px;border-bottom:1px solid var(--line)}
+  .subtotals div:last-child{border-bottom:none}
+  .subtotals div span:last-child{font-weight:700;font-variant-numeric:tabular-nums}
+  .subtotals .accent{background:#f4f8ec}.subtotals .accent span:last-child{color:var(--dl-green-dark)}
+  main{padding:20px 28px 40px}
+  .tabpanel{display:none}.tabpanel.active{display:block}
+  .stage-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .stage-title{font-size:19px;font-weight:700}
+  .stage-title small{display:block;font-weight:400;font-size:13px;color:var(--ink-2);margin-top:2px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:14px 16px;position:relative;overflow:hidden}
+  .kpi::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:100%;background:var(--dl-green);opacity:.8}
+  .kpi-label{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:600}
+  .kpi-val{font-size:24px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .kpi-delta{font-size:12.5px;margin-top:3px;font-weight:600}
+  .kpi-delta.pos{color:#3c7a12}.kpi-delta.neg{color:#b0392b}
+  .kpi-sub{font-size:12px;color:var(--ink-2);margin-top:2px;font-weight:400}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+  .chip{background:#fff;border:1px solid var(--line);color:var(--ink);padding:7px 13px;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer}
+  .chip:hover{border-color:var(--dl-green)}
+  .chip.active{background:var(--dl-green);color:#fff;border-color:var(--dl-green)}
+  .chip:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line)}
+  .chartcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 6px 4px;margin-top:12px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  svg.viz{width:100%;height:auto;display:block;font-family:'Open Sans',sans-serif}
+  svg.viz path.lnk{transition:stroke-opacity .12s}svg.viz path.lnk:hover{stroke-opacity:.9!important}
+  .placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;height:380px;color:var(--ink-2);text-align:center;gap:6px}
+  .placeholder .ring{width:56px;height:56px;border-radius:50%;border:3px solid var(--dl-green);opacity:.3;margin-bottom:8px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:12px 4px 2px;font-size:12.5px;color:var(--ink-2)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}.legend i{width:13px;height:13px;border-radius:3px}
+  .warn{font-size:12.5px;color:#9b6a0b;background:#fdf4e1;border:1px solid #f0d99a;border-radius:7px;padding:8px 11px;margin-top:10px;display:none}
+  .warn.show{display:block}
+  .foot{font-size:11.5px;color:var(--ink-2);margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+  .ov-hero{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 28px;position:relative;overflow:hidden}
+  .ov-hero .rings{position:absolute;right:-30px;top:-30px;width:220px;height:220px;opacity:.7;pointer-events:none}
+  .ov-eyebrow{font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--dl-green-dark)}
+  .ov-headline{font-size:27px;font-weight:700;line-height:1.2;margin:8px 0 10px;max-width:760px}
+  .ov-headline em{font-style:italic;color:var(--dl-green)}
+  .ov-summary{font-size:15.5px;color:#3a3a3a;max-width:780px}
+  .ov-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:18px}
+  .ov-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .ov-card h4{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);display:flex;align-items:center;gap:8px}
+  .ov-card h4 .pin{width:11px;height:11px;border-radius:50%;display:inline-block}
+  .ov-card ul{margin:0;padding-left:18px}.ov-card li{margin-bottom:8px;font-size:14px}
+  .ov-card.findings{grid-column:1/-1}
+</style>
+</head>
+<body>
+<div class="topbar"></div>
+<header>
+  <div class="htop">
+    <h1>10-K <em>Studio</em></h1>
+    <div class="company-tag" id="companyTag">No filing loaded</div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="company" class="active">Company</button>
+    <button data-tab="overview">10-K Summary</button>
+    <button data-tab="pnl">P&amp;L</button>
+    <button data-tab="bs">Balance sheet</button>
+    <button data-tab="cf">Cash flow</button>
+  </nav>
+</header>
+<div class="drawer" id="drawer">
+  <div class="drawer-head" id="drawerHead">
+    <div class="dot"></div>
+    <h2>Source &amp; figures</h2>
+    <span class="chev">&#9662;</span>
+  </div>
+  <div class="drawer-body">
+    <div>
+      <div class="fetch">
+        <div class="frow">
+          <input id="ticker" placeholder="Company name or ticker — e.g. Apple or AAPL"/>
+          <select id="reportType">
+            <option value="10-K">Latest 10-K (annual)</option>
+            <option value="10-Q">Latest 10-Q (quarterly)</option>
+          </select>
+        </div>
+        <div class="frow">
+          <input id="period" placeholder="Specific period (optional) — e.g. FY2024 or Q2 2025"/>
+          <button class="b b-primary" id="fetchBtn">Fetch &amp; structure</button>
+        </div>
+        <div class="hint">Claude looks the filing up on SEC EDGAR — no download needed. Best-effort retrieval; verify figures against the filing.</div>
+      </div>
+      <div class="or-sep"><span>or paste it yourself</span></div>
+      <textarea id="src" placeholder="Paste the 10-K — at minimum the Statements of Operations, Balance Sheets, Cash Flows, and the segment / geography notes. Pasting the whole filing works too; the most recent fiscal year is used."></textarea>
+      <div class="row">
+        <button class="b b-ghost" id="genBtn">Structure pasted text</button>
+        <button class="b b-ghost" id="fileBtn">Load .htm / .txt</button>
+        <button class="b b-ghost" id="importBtn">Import data (JSON)</button>
+        <button class="b b-ghost" id="exportBtn">Export data (JSON)</button>
+        <button class="b b-ghost" id="exampleBtn">Load example</button>
+        <input type="file" id="fileInput" accept=".txt,.htm,.html,.text"/>
+        <input type="file" id="jsonInput" accept=".json,application/json"/>
+      </div>
+      <div class="hint">SEC EDGAR serves 10-Ks as <code>.htm</code> — download, load, then structure. Two fiscal years are extracted so growth, turns, and the year-over-year story have a basis.</div>
+      <div class="status" id="status"></div>
+    </div>
+    <div><div id="editor"></div></div>
+  </div>
+</div>
+<main>
+  <section class="tabpanel active" data-panel="company" id="companyPanel"></section>
+  <section class="tabpanel" data-panel="overview" id="ovPanel"></section>
+  <section class="tabpanel" data-panel="pnl">
+    <div class="stage-head">
+      <div class="stage-title">Income statement<small>Revenue cascades to net income; hover for percent of revenue.</small></div>
+      <div class="toolbar">
+        <button class="b b-ghost b-sm" data-export="svg" data-svg="pnlChart">Download SVG</button>
+        <button class="b b-ghost b-sm" data-export="png" data-svg="pnlChart">Download PNG</button>
+      </div>
+    </div>
+    <div class="kpis" id="pnlKpis"></div>
+    <div class="chips" id="pnlModes"></div>
+    <div class="warn" id="pnlWarn"></div>
+    <div class="chartcard"><svg class="viz" id="pnlChart" viewBox="0 0 1160 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div class="legend">
+      <span><i style="background:#005587"></i>Revenue</span><span><i style="background:#86BC25"></i>Profit retained</span>
+      <span><i style="background:#4E7D1C"></i>Net income</span><span><i style="background:#C0392B"></i>Cost of sales / structural</span>
+      <span><i style="background:#E8A317"></i>Operating expense</span><span><i style="background:#00A3E0"></i>Segment / other income</span>
+    </div>
+  </section>
+  <section class="tabpanel" data-panel="bs">
+    <div class="stage-head">
+      <div class="stage-title">Balance sheet<small>Hierarchy sized by carrying value, colored by class.</small></div>
+      <div class="toolbar">
+        <button class="b b-ghost b-sm" data-export="svg" data-svg="bsChart">Download SVG</button>
+        <button class="b b-ghost b-sm" data-export="png" data-svg="bsChart">Download PNG</button>
+      </div>
+    </div>
+    <div class="kpis" id="bsKpis"></div>
+    <div class="warn" id="bsWarn"></div>
+    <div class="chartcard"><svg class="viz" id="bsChart" viewBox="0 0 1160 600" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div class="legend">
+      <span><i style="background:#86BC25"></i>Assets</span><span><i style="background:#C0392B"></i>Liabilities</span><span><i style="background:#00A3E0"></i>Equity</span>
+    </div>
+  </section>
+  <section class="tabpanel" data-panel="cf">
+    <div class="stage-head">
+      <div class="stage-title">Cash flow<small>Where cash came from and went over the year.</small></div>
+      <div class="toolbar">
+        <button class="b b-ghost b-sm" data-export="svg" data-svg="cfChart">Download SVG</button>
+        <button class="b b-ghost b-sm" data-export="png" data-svg="cfChart">Download PNG</button>
+      </div>
+    </div>
+    <div class="kpis" id="cfKpis"></div>
+    <div class="chips" id="cfModes"></div>
+    <div class="warn" id="cfWarn"></div>
+    <div class="chartcard"><svg class="viz" id="cfChart" viewBox="0 0 1160 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div class="legend">
+      <span><i style="background:#86BC25"></i>Cash in</span><span><i style="background:#C0392B"></i>Cash out</span><span><i style="background:#5b5b5b"></i>Activity subtotal</span><span><i style="background:#4E7D1C"></i>Net change</span>
+    </div>
+  </section>
+  <div class="foot">All views are derived from the figures in the drawer, so they always balance. Built for working analysis — verify against the audited filing before relying on it.</div>
+</main>
+<script>
+const BLUE=['#00A3E0','#005587','#3FC3EC','#0E7BAA','#A0DCFF','#1B6CA8','#62C4E8'];
+const ASSET_PAL=['#86BC25','#9BC93F','#6E9C1E','#B7E320','#5E8718','#A4D34D','#7FB02E'];
+const LIAB_PAL=['#C0392B','#D6604D','#9B2D22','#E08070','#E8A317','#B34A3C','#CF6A3A'];
+const EQ_PAL=['#00A3E0','#0E7BAA','#3FC3EC','#005587','#62C4E8','#A0DCFF'];
+const UNIT_MULT={billions:1e9,millions:1e6,thousands:1e3,absolute:1};
+const STR_KEYS=new Set(['company','period','priorPeriod','units','currency','description','sector','industry','headquarters','founded','employees','ticker','exchange','businessModel','segmentation','marketPosition','marketShare','year']);
+const model={
+  company:'',period:'',priorPeriod:'',currency:'USD',units:'millions',
+  pnl:{revenue:0,costOfRevenue:0,operatingExpenses:[],nonOperating:[],incomeTax:0,reportedNetIncome:null},
+  prior:{revenue:0,costOfRevenue:0,operatingIncome:0,netIncome:0},
+  segments:[],geographies:[],
+  bs:{currentAssets:[],nonCurrentAssets:[],currentLiabilities:[],nonCurrentLiabilities:[],equity:[]},
+  bsPrior:{totalAssets:0,totalLiabilities:0,totalEquity:0,accountsReceivable:0,accountsPayable:0},
+  cf:{operating:[],investing:[],financing:[],fxEffect:0,beginningCash:0,endingCash:0,reportedNetChange:null},
+  cfPrior:{netChange:0},
+  dimCash:{metric:'',bySegment:[],byGeography:[]},
+  profile:null,
+  narrative:null
+};
+const state={tab:'company',pnlMode:'consolidated',cfMode:'consolidated'};
+/* Leave '' to run as-is (paste / import). When you deploy as a real site,
+   set this to your serverless function base, e.g. '/api' — that turns the
+   "Fetch & structure" button into a live SEC EDGAR pull. */
+const BACKEND_URL='/api';
+const $=s=>document.querySelector(s);
+const $$=s=>document.querySelectorAll(s);
+function num(v){if(v==null)return 0;const n=parseFloat(String(v).replace(/[, $]/g,''));return isNaN(n)?0:n;}
+function sumArr(a){return a.reduce((t,x)=>t+num(x.value),0);}
+function getP(p){return p.split('.').reduce((o,k)=>o&&o[k],model);}
+function setP(p,v){const ks=p.split('.');let o=model;for(let i=0;i<ks.length-1;i++)o=o[ks[i]];o[ks[ks.length-1]]=v;}
+function fmt(v){
+  const m=UNIT_MULT[model.units]||1;const neg=v<0;let x=Math.abs(v*m);let s;
+  if(x>=1e12)s=(x/1e12).toFixed(x>=1e13?0:1)+'T';
+  else if(x>=1e9)s=(x/1e9).toFixed(x>=1e10?0:1)+'B';
+  else if(x>=1e6)s=(x/1e6).toFixed(x>=1e7?0:1)+'M';
+  else if(x>=1e3)s=(x/1e3).toFixed(0)+'K';
+  else s=x.toFixed(0);
+  return (neg?'-':'')+'$'+s;
+}
+function pctRev(v){return model.pnl.revenue>0?(v/model.pnl.revenue*100).toFixed(1)+'% of revenue':'';}
+function alpha(hex,a){const c=hex.replace('#','');return'rgba('+parseInt(c.slice(0,2),16)+','+parseInt(c.slice(2,4),16)+','+parseInt(c.slice(4,6),16)+','+a+')';}
+function growth(cur,prior){if(prior==null||prior===0||isNaN(prior))return null;return (cur-prior)/Math.abs(prior)*100;}
+function findVal(arr,inc,exc){const it=arr.find(x=>inc.test(x.name||'')&&!(exc&&exc.test(x.name||'')));return it?num(it.value):0;}
+function hasData(){return model.pnl.revenue>0||model.bs.currentAssets.length>0||model.cf.operating.length>0;}
+function setStatus(m,k){const e=$('#status');e.className='status show '+(k||'info');e.textContent=m;}
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function toggleWarn(el,issues){if(issues.length){el.className='warn show';el.innerHTML=issues.map(i=>'• '+i).join('<br>');}else el.className='warn';}
+function recompute(){
+  const P=model.pnl;
+  P.sumOpex=P.operatingExpenses.reduce((a,e)=>a+Math.abs(num(e.value)),0);
+  P.sumNonOp=P.nonOperating.reduce((a,e)=>a+num(e.value),0);
+  P.grossProfit=P.revenue-P.costOfRevenue;
+  P.operatingIncome=P.grossProfit-P.sumOpex;
+  P.pretaxIncome=P.operatingIncome+P.sumNonOp;
+  P.netIncome=P.pretaxIncome-P.incomeTax;
+  const pr=model.prior;pr.grossProfit=pr.revenue-pr.costOfRevenue;
+  const b=model.bs;
+  b.totCurA=sumArr(b.currentAssets);b.totNCA=sumArr(b.nonCurrentAssets);b.totalAssets=b.totCurA+b.totNCA;
+  b.totCurL=sumArr(b.currentLiabilities);b.totNCL=sumArr(b.nonCurrentLiabilities);b.totalLiabilities=b.totCurL+b.totNCL;
+  b.totalEquity=sumArr(b.equity);
+  b.ar=findVal(b.currentAssets,/accounts? receivable|trade receivable/i,/vendor/i)||findVal(b.currentAssets,/receivable/i,/vendor/i);
+  b.ap=findVal(b.currentLiabilities,/accounts? payable/i);
+  const c=model.cf;
+  c.cfo=sumArr(c.operating);c.cfi=sumArr(c.investing);c.cff=sumArr(c.financing);
+  c.netChange=c.cfo+c.cfi+c.cff+num(c.fxEffect);
+}
+function adopt(p){
+  model.company=p.company||'Company';model.period=p.period||'';model.priorPeriod=p.priorPeriod||'';
+  model.currency=p.currency||'USD';
+  model.units=['billions','millions','thousands','absolute'].includes(p.units)?p.units:'millions';
+  const P=p.pnl||{};
+  model.pnl={revenue:num(P.revenue),costOfRevenue:num(P.costOfRevenue),
+    operatingExpenses:(P.operatingExpenses||[]).map(x=>({name:x.name||'Operating expense',value:Math.abs(num(x.value))})),
+    nonOperating:(P.nonOperating||[]).map(x=>({name:x.name||'Non-operating',value:num(x.value)})),
+    incomeTax:num(P.incomeTax),reportedNetIncome:P.netIncome==null?null:num(P.netIncome)};
+  const pr=p.pnlPrior||{};
+  model.prior={revenue:num(pr.revenue),costOfRevenue:num(pr.costOfRevenue),operatingIncome:num(pr.operatingIncome),netIncome:num(pr.netIncome)};
+  model.segments=(p.segments||[]).map(x=>({name:x.name||'Segment',revenue:num(x.revenue),operatingIncome:x.operatingIncome==null?null:num(x.operatingIncome)}));
+  model.geographies=(p.geographies||[]).map(x=>({name:x.name||'Region',revenue:num(x.revenue)}));
+  const B=p.balanceSheet||{};
+  const mapLI=a=>(a||[]).map(x=>({name:x.name||'Item',value:num(x.value)}));
+  model.bs={currentAssets:mapLI(B.currentAssets),nonCurrentAssets:mapLI(B.nonCurrentAssets),
+    currentLiabilities:mapLI(B.currentLiabilities),nonCurrentLiabilities:mapLI(B.nonCurrentLiabilities),equity:mapLI(B.equity)};
+  const bp=p.balanceSheetPrior||{};
+  model.bsPrior={totalAssets:num(bp.totalAssets),totalLiabilities:num(bp.totalLiabilities),totalEquity:num(bp.totalEquity),accountsReceivable:num(bp.accountsReceivable),accountsPayable:num(bp.accountsPayable)};
+  const C=p.cashFlow||{};
+  model.cf={operating:(C.operating||[]).map(x=>({name:x.name||'Operating',value:num(x.value)})),
+    investing:(C.investing||[]).map(x=>({name:x.name||'Investing',value:num(x.value)})),
+    financing:(C.financing||[]).map(x=>({name:x.name||'Financing',value:num(x.value)})),
+    fxEffect:num(C.fxEffect),beginningCash:num(C.beginningCash),endingCash:num(C.endingCash),
+    reportedNetChange:C.netChange==null?null:num(C.netChange)};
+  model.cfPrior={netChange:num((p.cashFlowPrior||{}).netChange)};
+  const dc=p.dimensionalCash||{};
+  model.dimCash={metric:dc.metric||'',bySegment:(dc.bySegment||[]).map(x=>({name:x.name||'',value:num(x.value)})),byGeography:(dc.byGeography||[]).map(x=>({name:x.name||'',value:num(x.value)}))};
+  const pf=p.profile;
+  if(pf&&typeof pf==='object'){
+    const toNamed=a=>(a||[]).map(x=>typeof x==='string'?{name:x}:{name:x.name||''}).filter(x=>x.name);
+    model.profile={description:pf.description||'',sector:pf.sector||'',industry:pf.industry||'',headquarters:pf.headquarters||'',founded:pf.founded||'',employees:pf.employees||'',ticker:pf.ticker||'',exchange:pf.exchange||'',businessModel:pf.businessModel||'',segmentation:pf.segmentation||'',marketPosition:pf.marketPosition||'',marketShare:pf.marketShare||'',
+      channels:toNamed(pf.channels),competitors:toNamed(pf.competitors),differentiation:toNamed(pf.differentiation),
+      positioning:(pf.positioning||[]).map(x=>({name:x.name||'',cost:num(x.cost),quality:num(x.quality)})).filter(x=>x.name),
+      marketShareBreakdown:(pf.marketShareBreakdown||[]).map(x=>({name:x.name||'',share:num(x.share)})).filter(x=>x.name),
+      fiveYearRevenue:(pf.fiveYearRevenue||[]).map(x=>({year:String(x.year||''),revenue:num(x.revenue)}))};
+  } else model.profile=null;
+  model.narrative=p.narrative&&typeof p.narrative==='object'?p.narrative:null;
+}
+const SYS=[
+'You are a precise SEC 10-K parser and equity analyst. Read the filing and return ONLY one JSON object (no markdown, no prose) with EXACTLY these keys:',
+'{"company":"","period":"","priorPeriod":"","currency":"USD","units":"millions",',
+'"pnl":{"revenue":0,"costOfRevenue":0,"operatingExpenses":[{"name":"","value":0}],"nonOperating":[{"name":"","value":0}],"incomeTax":0,"netIncome":0},',
+'"pnlPrior":{"revenue":0,"costOfRevenue":0,"operatingIncome":0,"netIncome":0},',
+'"segments":[{"name":"","revenue":0,"operatingIncome":null}],',
+'"geographies":[{"name":"","revenue":0}],',
+'"balanceSheet":{"currentAssets":[{"name":"","value":0}],"nonCurrentAssets":[{"name":"","value":0}],"currentLiabilities":[{"name":"","value":0}],"nonCurrentLiabilities":[{"name":"","value":0}],"equity":[{"name":"","value":0}]},',
+'"balanceSheetPrior":{"totalAssets":0,"totalLiabilities":0,"totalEquity":0,"accountsReceivable":0,"accountsPayable":0},',
+'"cashFlow":{"operating":[{"name":"","value":0}],"investing":[{"name":"","value":0}],"financing":[{"name":"","value":0}],"fxEffect":0,"beginningCash":0,"endingCash":0,"netChange":0},',
+'"cashFlowPrior":{"netChange":0},',
+'"dimensionalCash":{"metric":"","bySegment":[{"name":"","value":0}],"byGeography":[{"name":"","value":0}]},',
+'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0}]},',
+'"narrative":{"headline":"","summary":"","findings":[""],"outlook":[""],"risks":[""],"capitalAllocation":[""]}}',
+'Rules:',
+'- period = most recent fiscal year; priorPeriod = the year before. Use the most recent year for all current figures.',
+'- units: one of billions/millions/thousands/absolute matching the statements. All values plain numbers.',
+'- pnl.costOfRevenue and operatingExpenses POSITIVE; operatingExpenses are line items between gross profit and operating income (use filing labels).',
+'- pnl.nonOperating SIGNED (income +, expense -). incomeTax + provision, - benefit. netIncome reported.',
+'- balanceSheet line items POSITIVE, split into the four groups + equity, using the filing line labels (include Accounts receivable and Accounts payable by those names).',
+'- cashFlow items SIGNED (inflow +, outflow -), grouped operating/investing/financing; include D&A, working capital and main drivers; netChange = reported net increase/(decrease) in cash.',
+'- dimensionalCash: ONLY if the filing discloses a cash metric by segment or geography (commonly capital expenditures). Set metric to its name; else metric "" and arrays [].',
+'- profile: from Item 1 Business and the competition discussion. description = 2-3 sentences on what the company does. businessModel = how it makes money. segmentation = how it organizes/reports its business. channels = go-to-market channels. competitors = up to 6 named rivals. differentiation = 3-5 short points on its edge/moat. marketPosition = leader/challenger/niche + one line. marketShare = a short estimate string (you may use general knowledge; frame as approximate). fiveYearRevenue = the last 5 fiscal years of total revenue in the same units (use the filing if present, otherwise your best knowledge), each {year,revenue}. Fill founded/headquarters/employees/ticker/exchange/sector/industry where known.',
+'- profile.positioning = the company PLUS its main competitors (4-6 total, include the company by its common name), each scored cost 0-100 (0=budget/low price, 100=premium/high price) and quality 0-100 (0=low, 100=high). Estimates from general knowledge are fine.',
+'- profile.marketShareBreakdown = approximate market share percent for the company and its top competitors in its core market (include the company itself; 3-6 entries). The viewer adds an "All other" remainder automatically, so they need not sum to 100.',
+'- narrative: YOUR OWN concise analysis in your own words (never copy sentences from the filing). headline ~10 words; summary 2-3 sentences; findings 4-6 short points; outlook 2-4; risks 2-4; capitalAllocation 2-3 or [].',
+'- If asked to find a company\'s filing, use web search on sec.gov / EDGAR to locate and read the actual filing before extracting; prefer the primary filing over aggregators.',
+'Return only the JSON.'
+].join('\n');
+async function callMessages(body){
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){let d='';try{d=await r.text();}catch(_){}throw new Error('HTTP '+r.status+(d?(' — '+d.slice(0,200)):''));}
+  return r.json();
+}
+async function runStructuring(userContent,useSearch,btn){
+  const old=btn.textContent;btn.disabled=true;btn.textContent=useSearch?'Searching EDGAR…':'Reading filing…';
+  setStatus(useSearch?'Searching SEC EDGAR and structuring the filing — this can take 20–40 seconds…':'Structuring all three statements and writing the overview…','info');
+  try{
+    const messages=[{role:'user',content:userContent}];
+    const base={model:'claude-sonnet-4-20250514',max_tokens:8000,system:SYS};
+    if(useSearch)base.tools=[{type:'web_search_20250305',name:'web_search'}];
+    let data,guard=0;
+    do{
+      data=await callMessages(Object.assign({},base,{messages:messages}));
+      if(data&&data.stop_reason==='pause_turn'&&Array.isArray(data.content)){messages.push({role:'assistant',content:data.content});}
+      guard++;
+    }while(data&&data.stop_reason==='pause_turn'&&guard<8);
+    window.__lastResp=data;
+    let t=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+    if(!t)throw new Error('no text returned (stop reason: '+(data&&data.stop_reason)+')');
+    t=t.replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    const a=t.indexOf('{'),b=t.lastIndexOf('}');if(a>=0&&b>a)t=t.slice(a,b+1);
+    let parsed;try{parsed=JSON.parse(t);}catch(pe){throw new Error('the response was not valid JSON'+(data.stop_reason==='max_tokens'?' (hit the length limit)':''));}
+    adopt(parsed);
+    state.pnlMode='consolidated';state.cfMode='consolidated';
+    buildEditor();renderAll();
+    if(!hasData()){setStatus('No usable figures came back — the filing may not have been found. Try the ticker (e.g. GOOGL), add a specific period, or paste the statements below.','err');return;}
+    setStatus('Structured '+model.company+(model.period?' · '+model.period:'')+'. Review the figures in the drawer, then explore each tab.'+(useSearch?' Retrieved figures are best-effort — verify against the filing.':''),'ok');
+  }catch(e){
+    setStatus('Could not complete: '+e.message+'. '+(useSearch?'In-app EDGAR fetch may be unavailable in this environment — ask Claude in chat for the company, then use "Import data (JSON)", or paste the filing below.':'If this file is open outside Claude, AI structuring is unavailable — enter figures in the drawer; every view still works.'),'err');
+  }finally{btn.disabled=false;btn.textContent=old;}
+}
+function structureWithClaude(){
+  const raw=$('#src').value.trim();
+  if(!raw){setStatus('Paste the filing first, or use "Fetch & structure" above.','err');return;}
+  const text=raw.length>240000?raw.slice(0,240000):raw;
+  runStructuring('10-K:\n\n'+text,false,$('#genBtn'));
+}
+function fetchFiling(){
+  const co=$('#ticker').value.trim();
+  if(!co){setStatus('Enter a company name or ticker to fetch.','err');return;}
+  const rt=$('#reportType').value,period=$('#period').value.trim();
+  if(BACKEND_URL)return fetchViaBackend(co,rt,period);
+  const kind=rt==='10-Q'?'most recent 10-Q quarterly report':'most recent 10-K annual report';
+  const per=period?(' for '+period):'';
+  const q='Find '+co+"'s "+kind+per+' on SEC EDGAR (use web search across sec.gov / EDGAR full-text search and the company filing index). Read the consolidated financial statements (income statement, balance sheet, statement of cash flows), the segment and geographic notes, and the business/competition section, then return the JSON described in the system instructions using the ACTUAL reported figures. '+(rt==='10-Q'?'For a 10-Q, period is the fiscal quarter and priorPeriod (and pnlPrior) is the comparable prior-year quarter; balanceSheetPrior is the prior fiscal year-end.':'')+' If you cannot locate the filing, return {"company":""}. Return only the JSON.';
+  runStructuring(q,true,$('#fetchBtn'));
+}
+async function fetchViaBackend(co,rt,period){
+  const btn=$('#fetchBtn'),old=btn.textContent;btn.disabled=true;btn.textContent='Fetching from EDGAR…';
+  setStatus('Fetching the filing from SEC EDGAR via your backend — this can take a moment…','info');
+  try{
+    const u=BACKEND_URL.replace(/\/$/,'')+'/fetch-filing?ticker='+encodeURIComponent(co)+'&form='+encodeURIComponent(rt)+'&period='+encodeURIComponent(period);
+    const r=await fetch(u);const data=await r.json();
+    if(!r.ok||data.error)throw new Error(data.error||('HTTP '+r.status));
+    adopt(data);state.pnlMode='consolidated';state.cfMode='consolidated';buildEditor();renderAll();
+    if(!hasData()){setStatus('No usable figures returned for that company/period — try a ticker or a specific period.','err');return;}
+    setStatus('Loaded '+model.company+(model.period?' · '+model.period:'')+' from EDGAR. Figures are extracted from the filing — verify against the source.','ok');
+  }catch(e){setStatus('Fetch failed: '+e.message+'. Check the backend URL and its logs, or paste the filing below.','err');}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+function loadExample(){
+  adopt({company:'Apple Inc.',period:'FY2024 · illustrative',priorPeriod:'FY2023',currency:'USD',units:'millions',
+    pnl:{revenue:391035,costOfRevenue:210352,operatingExpenses:[{name:'Research & development',value:31370},{name:'Selling, general & admin.',value:26097}],nonOperating:[{name:'Other income / (expense), net',value:269}],incomeTax:29749,netIncome:93736},
+    pnlPrior:{revenue:383285,costOfRevenue:214137,operatingIncome:114301,netIncome:96995},
+    segments:[{name:'Americas',revenue:167045,operatingIncome:70000},{name:'Europe',revenue:101328,operatingIncome:42000},{name:'Greater China',revenue:66952,operatingIncome:28000},{name:'Japan',revenue:25052,operatingIncome:12500},{name:'Rest of Asia Pacific',revenue:30658,operatingIncome:13000}],
+    geographies:[{name:'Americas',revenue:167045},{name:'Europe',revenue:101328},{name:'Greater China',revenue:66952},{name:'Japan',revenue:25052},{name:'Rest of Asia Pacific',revenue:30658}],
+    balanceSheet:{
+      currentAssets:[{name:'Cash & equivalents',value:29943},{name:'Marketable securities',value:35228},{name:'Accounts receivable, net',value:33410},{name:'Vendor non-trade receivables',value:32833},{name:'Inventories',value:7286},{name:'Other current assets',value:14287}],
+      nonCurrentAssets:[{name:'Marketable securities (LT)',value:91479},{name:'Property, plant & equipment, net',value:45680},{name:'Other non-current assets',value:74834}],
+      currentLiabilities:[{name:'Accounts payable',value:68960},{name:'Other current liabilities',value:78304},{name:'Deferred revenue',value:8249},{name:'Commercial paper',value:9967},{name:'Term debt (current)',value:10912}],
+      nonCurrentLiabilities:[{name:'Term debt',value:85750},{name:'Other non-current liabilities',value:45888}],
+      equity:[{name:'Common stock & APIC',value:83276},{name:'Retained earnings / (deficit)',value:-19154},{name:'Accum. other comp. loss',value:-7172}]},
+    balanceSheetPrior:{totalAssets:352583,totalLiabilities:290437,totalEquity:62146,accountsReceivable:29508,accountsPayable:62611},
+    cashFlow:{operating:[{name:'Net income',value:93736},{name:'Depreciation & amortization',value:11445},{name:'Share-based compensation',value:11688},{name:'Working capital & other',value:1385}],
+      investing:[{name:'Capital expenditures',value:-9447},{name:'Marketable securities, net',value:13690},{name:'Other investing',value:-1308}],
+      financing:[{name:'Dividends paid',value:-15234},{name:'Share repurchases',value:-94949},{name:'Net debt repayment',value:-5998},{name:'Taxes / other financing',value:-5803}],
+      fxEffect:0,beginningCash:30737,endingCash:29942,netChange:-795},
+    cashFlowPrior:{netChange:5760},
+    dimensionalCash:{metric:'',bySegment:[],byGeography:[]},
+    profile:{description:'Apple designs, manufactures, and markets consumer electronics — iPhone, Mac, iPad, and wearables — and sells a fast-growing portfolio of services including the App Store, advertising, cloud, payments, and subscriptions. Hardware anchors a large, loyal installed base that Apple increasingly monetizes through software and services.',
+      sector:'Technology',industry:'Consumer Electronics & Digital Services',headquarters:'Cupertino, California',founded:'1976',employees:'~164,000',ticker:'AAPL',exchange:'NASDAQ',
+      businessModel:'Premium hardware sold at healthy margins creates a sticky installed base of 2B+ active devices, which Apple monetizes through high-margin, recurring services and ecosystem lock-in.',
+      segmentation:'Reports five geographic segments (Americas, Europe, Greater China, Japan, Rest of Asia Pacific) and discloses revenue by product category (iPhone, Mac, iPad, Wearables/Home/Accessories, Services).',
+      channels:[{name:'Apple retail & online stores'},{name:'Direct enterprise & education'},{name:'Carriers & wholesalers'},{name:'Authorized resellers'},{name:'App Store / digital storefronts'}],
+      competitors:[{name:'Samsung'},{name:'Google / Alphabet'},{name:'Microsoft'},{name:'Huawei'},{name:'Xiaomi'},{name:'Amazon'}],
+      marketPosition:'Premium-tier leader: a minority share of global smartphone units but the dominant share of industry profits, with category leadership in tablets, wearables, and app-store revenue.',
+      marketShare:'~18-20% of global smartphone units (majority of industry profit pool); leading share in tablets and smartwatches.',
+      positioning:[{name:'Apple',cost:90,quality:92},{name:'Samsung',cost:66,quality:82},{name:'Google Pixel',cost:60,quality:80},{name:'Xiaomi',cost:34,quality:66},{name:'Huawei',cost:56,quality:78}],
+      marketShareBreakdown:[{name:'Apple',share:18},{name:'Samsung',share:19},{name:'Xiaomi',share:12},{name:'Oppo',share:8},{name:'Vivo',share:7}],
+      differentiation:[{name:'Tight hardware–software–services integration and silicon (Apple-designed chips)'},{name:'Brand strength and pricing power at the premium tier'},{name:'2B+ active-device installed base driving recurring services'},{name:'Privacy positioning and ecosystem switching costs'}],
+      fiveYearRevenue:[{year:'FY2020',revenue:274515},{year:'FY2021',revenue:365817},{year:'FY2022',revenue:394328},{year:'FY2023',revenue:383285},{year:'FY2024',revenue:391035}]},
+    narrative:{headline:'Record revenue and margins, with net income pressured by a one-time tax charge',
+      summary:'Revenue reached an all-time high as Services growth offset softer hardware demand, and gross margin expanded on a richer mix. Reported net income declined despite higher operating income, driven by a materially larger tax provision tied to a one-time European charge. Cash generation stayed exceptional and was returned to shareholders largely through buybacks and dividends.',
+      findings:['Revenue grew ~2% to ~$391B; Services mix lifted gross margin toward ~46%','Operating income rose ~8% on margin expansion and expense discipline','Net income fell ~3% as the effective tax rate jumped on a one-time charge','Operating cash flow remained robust at ~$118B','Capital returns were aggressive: ~$95B buybacks and ~$15B dividends','Buybacks kept retained earnings negative even as the business compounded'],
+      outlook:['Services and installed-base monetization remain the primary growth lever','A hardware/AI refresh cycle could re-accelerate product revenue','Capital return program likely continues to absorb most free cash flow'],
+      risks:['Demand sensitivity in Greater China and broader geographic concentration','Regulatory pressure on App Store economics and platform fees','FX translation and supply-chain concentration'],
+      capitalAllocation:['~$95B share repurchases','~$15B dividends','Modest net debt reduction']}});
+  state.pnlMode='consolidated';state.cfMode='consolidated';
+  buildEditor();renderAll();$('#src').value='';
+  setStatus('Loaded an illustrative Apple two-year dataset. Consolidated figures track the filings; segment operating income and the narrative are simplified for the demo.','ok');
+}
+function resolveFill(cat,segI){
+  switch(cat){case 'revenue':return '#005587';case 'profit':return '#86BC25';case 'netincome':return '#4E7D1C';
+    case 'opex':return '#E8A317';case 'income':return '#00A3E0';case 'segment':return BLUE[segI%BLUE.length];default:return '#C0392B';}
+}
+function buildGraph(mode){
+  const P=model.pnl,nodes=[],idx={},links=[];let segI=0;
+  function N(name,cat){if(name in idx)return idx[name];const n={name,cat};n.fill=resolveFill(cat,segI);if(cat==='segment')segI++;idx[name]=nodes.length;nodes.push(n);return idx[name];}
+  function L(s,t,v,cat){if(v>1e-9)links.push({source:s,target:t,value:v,cat});}
+  function tail(oi){
+    const pt=N('Pre-tax income','profit');let surv=P.operatingIncome;
+    P.nonOperating.forEach(it=>{if(num(it.value)<0){const n=N(it.name,'cost');L(oi,n,-num(it.value),'cost');surv+=num(it.value);}});
+    L(oi,pt,Math.max(surv,0),'profit');
+    P.nonOperating.forEach(it=>{if(num(it.value)>0){const n=N(it.name,'income');L(n,pt,num(it.value),'income');}});
+    if(P.incomeTax>0){L(pt,N('Income tax','cost'),P.incomeTax,'cost');}
+    else if(P.incomeTax<0){L(N('Income tax benefit','income'),pt,-P.incomeTax,'income');}
+    L(pt,N('Net income','netincome'),Math.max(P.netIncome,0),'netincome');
+  }
+  function cascade(rev){
+    const gp=N('Gross profit','profit');
+    if(P.costOfRevenue>0)L(rev,N('Cost of revenue','cost'),P.costOfRevenue,'cost');
+    L(rev,gp,Math.max(P.grossProfit,0),'profit');
+    const oi=N('Operating income','profit');
+    P.operatingExpenses.forEach(e=>{const v=Math.abs(num(e.value));if(v>0)L(gp,N(e.name,'opex'),v,'opex');});
+    L(gp,oi,Math.max(P.operatingIncome,0),'profit');tail(oi);
+  }
+  if(mode==='segment'){const r=N('Total revenue','revenue');model.segments.forEach(s=>L(N(s.name,'segment'),r,num(s.revenue),'segment'));cascade(r);}
+  else if(mode==='geography'){const r=N('Total revenue','revenue');model.geographies.forEach(g=>L(N(g.name,'segment'),r,num(g.revenue),'segment'));cascade(r);}
+  else if(mode==='segmentpnl'){
+    const oi=N('Operating income','profit');let sum=0;
+    model.segments.forEach(s=>{const sn=N(s.name,'segment'),rev=num(s.revenue),sOI=Math.max(num(s.operatingIncome),0),cost=rev-num(s.operatingIncome);
+      if(cost>0)L(sn,N(s.name+' \u2014 costs','cost'),cost,'cost');L(sn,oi,sOI,'profit');sum+=sOI;});
+    const corp=P.operatingIncome-sum;
+    if(corp<0)L(oi,N('Corporate / unallocated','cost'),-corp,'cost');else if(corp>0)L(N('Unallocated','income'),oi,corp,'income');
+    tail(oi);
+  } else cascade(N('Total revenue','revenue'));
+  return {nodes,links};
+}
+function placeholder(svg,vb,msg){
+  svg.selectAll('*').remove();svg.attr('viewBox',vb);const p=vb.split(' ');
+  svg.append('foreignObject').attr('width',p[2]).attr('height',p[3])
+    .append('xhtml:div').attr('class','placeholder')
+    .html('<div class="ring"></div><div style="font-weight:600;color:#282728">'+msg+'</div><div>Structure a 10-K or load the example.</div>');
+}
+function renderSankey(){
+  const svg=d3.select('#pnlChart');
+  if(!(model.pnl.revenue>0)){placeholder(svg,'0 0 1160 480','Nothing to flow yet');return;}
+  svg.selectAll('*').remove();
+  const built=buildGraph(state.pnlMode),nodes=built.nodes,links=built.links;
+  const W=1160,H=Math.min(920,Math.max(520,nodes.length*26+110));svg.attr('viewBox','0 0 '+W+' '+H);
+  const sk=d3.sankey().nodeWidth(20).nodePadding(15).nodeAlign(d3.sankeyLeft).extent([[10,18],[W-10,H-18]]);
+  const g=sk({nodes:nodes.map(d=>Object.assign({},d)),links:links.map(d=>Object.assign({},d))});
+  const root=svg.append('g');
+  root.append('g').attr('fill','none').attr('stroke-opacity',.5).selectAll('path').data(g.links).join('path')
+    .attr('class','lnk').attr('d',d3.sankeyLinkHorizontal())
+    .attr('stroke',d=>d.cat==='segment'?alpha(d.source.fill,.42):alpha(d.target.fill,.42))
+    .attr('stroke-width',d=>Math.max(1,d.width))
+    .append('title').text(d=>d.source.name+' \u2192 '+d.target.name+'\n'+fmt(d.value)+' ('+pctRev(d.value)+')');
+  const node=root.append('g').selectAll('g').data(g.nodes).join('g');
+  node.append('rect').attr('x',d=>d.x0).attr('y',d=>d.y0).attr('width',d=>d.x1-d.x0).attr('height',d=>Math.max(1.5,d.y1-d.y0)).attr('fill',d=>d.fill).attr('rx',3)
+    .append('title').text(d=>d.name+'\n'+fmt(d.value)+' ('+pctRev(d.value)+')');
+  node.append('text').attr('x',d=>d.x0<W/2?d.x1+9:d.x0-9).attr('y',d=>(d.y0+d.y1)/2).attr('dy','-0.1em')
+    .attr('text-anchor',d=>d.x0<W/2?'start':'end').attr('font-size',13).attr('font-weight',600).attr('fill','#282728')
+    .each(function(d){const left=d.x0<W/2;const t=d3.select(this);t.append('tspan').text(d.name);
+      t.append('tspan').attr('x',left?d.x1+9:d.x0-9).attr('dy','1.25em').attr('font-weight',400).attr('font-size',12).attr('fill','#555').text(fmt(d.value));});
+}
+const MODE_LABEL={consolidated:'Consolidated',segment:'Revenue by segment',geography:'Revenue by geography',segmentpnl:'Segment P&L'};
+function pnlModeAvail(){return{consolidated:true,segment:model.segments.length>0,geography:model.geographies.length>0,
+  segmentpnl:model.segments.length>0&&model.segments.every(s=>s.operatingIncome!=null&&s.operatingIncome!=='')};}
+function renderPnlModes(){
+  const av=pnlModeAvail();if(!av[state.pnlMode])state.pnlMode='consolidated';
+  const bar=$('#pnlModes');bar.innerHTML='';
+  Object.keys(MODE_LABEL).forEach(k=>{const b=document.createElement('button');b.className='chip'+(state.pnlMode===k?' active':'');
+    b.textContent=MODE_LABEL[k];b.disabled=!av[k];if(!av[k])b.title=k==='segmentpnl'?'Needs operating income per segment':'Not disclosed';
+    b.onclick=()=>{if(av[k]){state.pnlMode=k;renderPnlModes();renderSankey();}};bar.appendChild(b);});
+}
+function renderPnlKpis(){
+  const P=model.pnl,pr=model.prior;
+  kpis('#pnlKpis',[
+    kpi('TTM revenue',fmt(P.revenue),growth(P.revenue,pr.revenue)),
+    kpi('TTM gross profit',fmt(P.grossProfit),growth(P.grossProfit,pr.grossProfit),P.revenue>0?(P.grossProfit/P.revenue*100).toFixed(1)+'% margin':''),
+    kpi('TTM operating income',fmt(P.operatingIncome),growth(P.operatingIncome,pr.operatingIncome)),
+    kpi('TTM net income',fmt(P.netIncome),growth(P.netIncome,pr.netIncome),P.revenue>0?(P.netIncome/P.revenue*100).toFixed(1)+'% net margin':'')
+  ]);
+}
+function renderPnlWarn(){
+  const w=$('#pnlWarn'),P=model.pnl,is=[];
+  if(P.grossProfit<0)is.push('Gross profit is negative — downstream flows are clamped to zero.');
+  else if(P.netIncome<0)is.push('Net loss this period — the cascade clamps where flows go negative.');
+  if(P.reportedNetIncome!=null&&P.netIncome!==0&&Math.abs(P.reportedNetIncome-P.netIncome)>Math.max(2,Math.abs(P.reportedNetIncome)*.02))
+    is.push('Computed net income '+fmt(P.netIncome)+' differs from reported '+fmt(P.reportedNetIncome)+' — check the line items.');
+  if(state.pnlMode==='segment'||state.pnlMode==='geography'){const arr=state.pnlMode==='segment'?model.segments:model.geographies;
+    const s=arr.reduce((a,x)=>a+num(x.revenue),0);if(P.revenue>0&&Math.abs(s-P.revenue)>P.revenue*.02)is.push((state.pnlMode==='segment'?'Segment':'Geography')+' revenue sums to '+fmt(s)+' vs total '+fmt(P.revenue)+' — add an eliminations row.');}
+  toggleWarn(w,is);
+}
+function bsLeaves(arr,cat,pal,counter){return arr.filter(x=>num(x.value)>0).map(x=>{const c={name:x.name,value:Math.abs(num(x.value)),cat,fill:pal[counter.i%pal.length]};counter.i++;return c;});}
+function renderTreemap(){
+  const svg=d3.select('#bsChart'),b=model.bs;
+  if(b.totalAssets<=0){placeholder(svg,'0 0 1160 460','No balance sheet yet');return;}
+  svg.selectAll('*').remove();
+  const aC={i:0},lC={i:0},eC={i:0};
+  const data={name:'BS',children:[
+    {name:'Assets',cat:'asset',children:[
+      {name:'Current assets',children:bsLeaves(b.currentAssets,'asset',ASSET_PAL,aC)},
+      {name:'Non-current assets',children:bsLeaves(b.nonCurrentAssets,'asset',ASSET_PAL,aC)}]},
+    {name:'Liabilities',cat:'liability',children:[
+      {name:'Current liabilities',children:bsLeaves(b.currentLiabilities,'liability',LIAB_PAL,lC)},
+      {name:'Non-current liabilities',children:bsLeaves(b.nonCurrentLiabilities,'liability',LIAB_PAL,lC)}]},
+    {name:'Equity',cat:'equity',children:bsLeaves(b.equity,'equity',EQ_PAL,eC)}
+  ]};
+  const W=1160,H=600;svg.attr('viewBox','0 0 '+W+' '+H);
+  const root=d3.hierarchy(data).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
+  d3.treemap().tile(d3.treemapSquarify.ratio(1.4)).size([W,H]).paddingOuter(4)
+    .paddingTop(d=>d.depth===1?26:d.depth===2?17:0).paddingInner(3)(root);
+  const g=svg.append('g');
+  root.children.forEach(cn=>{
+    const col=cn.data.cat==='asset'?'#5E8718':cn.data.cat==='liability'?'#9B2D22':'#005587';
+    g.append('rect').attr('x',cn.x0).attr('y',cn.y0).attr('width',cn.x1-cn.x0).attr('height',cn.y1-cn.y0)
+      .attr('fill','none').attr('stroke',col).attr('stroke-width',1.5).attr('rx',5);
+    const catTotal=cn.data.cat==='asset'?b.totalAssets:cn.data.cat==='liability'?b.totalLiabilities:b.totalEquity;
+    g.append('text').attr('x',cn.x0+8).attr('y',cn.y0+17).attr('font-size',14).attr('font-weight',700).attr('fill',col)
+      .text(cn.data.name+' · '+fmt(catTotal));
+    (cn.children||[]).forEach(sn=>{if(sn.children)g.append('text').attr('x',sn.x0+6).attr('y',sn.y0+12).attr('font-size',10.5).attr('font-weight',600).attr('fill','#777').text(sn.data.name);});
+  });
+  const leaf=g.selectAll('g.leaf').data(root.leaves()).join('g').attr('transform',d=>'translate('+d.x0+','+d.y0+')');
+  leaf.append('rect').attr('width',d=>Math.max(0,d.x1-d.x0)).attr('height',d=>Math.max(0,d.y1-d.y0)).attr('fill',d=>d.data.fill).attr('rx',3).attr('opacity',.92)
+    .append('title').text(d=>d.data.name+'\n'+fmt(d.value));
+  leaf.each(function(d){const w=d.x1-d.x0,h=d.y1-d.y0;if(w<54||h<26)return;const t=d3.select(this);
+    const maxc=Math.floor(w/6.7);const name=d.data.name.length>maxc?d.data.name.slice(0,maxc-1)+'…':d.data.name;
+    t.append('text').attr('x',7).attr('y',16).attr('font-size',11.5).attr('font-weight',600).attr('fill','#fff').text(name);
+    t.append('text').attr('x',7).attr('y',31).attr('font-size',11).attr('fill','rgba(255,255,255,.9)').text(fmt(d.value));});
+}
+function renderBsKpis(){
+  const b=model.bs,bp=model.bsPrior,P=model.pnl,pr=model.prior;
+  const dso=P.revenue>0?b.ar/P.revenue*365:null;
+  const dpo=P.costOfRevenue>0?b.ap/P.costOfRevenue*365:null;
+  const pDso=(bp.accountsReceivable>0&&pr.revenue>0)?bp.accountsReceivable/pr.revenue*365:null;
+  const pDpo=(bp.accountsPayable>0&&pr.costOfRevenue>0)?bp.accountsPayable/pr.costOfRevenue*365:null;
+  kpis('#bsKpis',[
+    kpi('Total assets',fmt(b.totalAssets),growth(b.totalAssets,bp.totalAssets)),
+    kpi('Total liabilities',fmt(b.totalLiabilities),growth(b.totalLiabilities,bp.totalLiabilities)),
+    kpi('Total equity',fmt(b.totalEquity),growth(b.totalEquity,bp.totalEquity)),
+    kpiDays('DSO',dso,pDso),
+    kpiDays('DPO',dpo,pDpo)
+  ]);
+}
+function renderBsWarn(){
+  const w=$('#bsWarn'),b=model.bs,is=[];
+  if(b.totalAssets>0){const diff=b.totalAssets-(b.totalLiabilities+b.totalEquity);
+    if(Math.abs(diff)>b.totalAssets*.02)is.push('Assets '+fmt(b.totalAssets)+" don't tie to liabilities + equity "+fmt(b.totalLiabilities+b.totalEquity)+' — check line items.');
+    if(b.ar<=0)is.push('No "Accounts receivable" line detected, so DSO is blank — rename a current-asset row to include "receivable".');
+    if(b.ap<=0)is.push('No "Accounts payable" line detected, so DPO is blank — rename a current-liability row to include "payable".');
+    if(model.bs.equity.some(x=>num(x.value)<0))is.push('Contra-equity items (e.g. accumulated deficit) can\'t be drawn as boxes, so they\'re omitted from the treemap areas — the Equity total still reflects them.');}
+  toggleWarn(w,is);
+}
+function buildWaterfall(){
+  const c=model.cf,bars=[];let cum=0;
+  function group(arr,label){arr.forEach(i=>{const v=num(i.value);bars.push({label:i.name,type:'delta',value:v,y0:cum,y1:cum+v,group:label});cum+=v;});
+    bars.push({label:label,type:'sub',value:cum,y0:0,y1:cum,group:label});}
+  if(c.operating.length)group(c.operating,'Operating');
+  if(c.investing.length)group(c.investing,'Investing');
+  if(c.financing.length)group(c.financing,'Financing');
+  if(num(c.fxEffect)){const v=num(c.fxEffect);bars.push({label:'FX effect',type:'delta',value:v,y0:cum,y1:cum+v,group:'FX'});cum+=v;}
+  bars.push({label:'Net change in cash',type:'total',value:cum,y0:0,y1:cum,group:'Total'});
+  return bars;
+}
+function renderWaterfall(){
+  const svg=d3.select('#cfChart'),c=model.cf;
+  if(state.cfMode!=='consolidated'){renderCfDimension();return;}
+  if(!c.operating.length&&!c.investing.length&&!c.financing.length){placeholder(svg,'0 0 1160 440','No cash flow yet');return;}
+  svg.selectAll('*').remove();
+  const bars=buildWaterfall();
+  const W=1160,H=560,mL=64,mR=20,mT=58,mB=120;svg.attr('viewBox','0 0 '+W+' '+H);
+  const vals=[0];bars.forEach(b=>{vals.push(b.y0,b.y1);});
+  const min=Math.min.apply(null,vals),max=Math.max.apply(null,vals),pad=(max-min)*.08||1;
+  const y=d3.scaleLinear().domain([min-pad,max+pad]).range([H-mB,mT]);
+  const x=d3.scaleBand().domain(bars.map((b,i)=>i)).range([mL,W-mR]).padding(.32);
+  const g=svg.append('g');
+  y.ticks(6).forEach(tk=>{g.append('line').attr('x1',mL).attr('x2',W-mR).attr('y1',y(tk)).attr('y2',y(tk)).attr('stroke','#eee');
+    g.append('text').attr('x',mL-8).attr('y',y(tk)).attr('dy','.32em').attr('text-anchor','end').attr('font-size',10).attr('fill','#999').text(fmt(tk));});
+  g.append('line').attr('x1',mL).attr('x2',W-mR).attr('y1',y(0)).attr('y2',y(0)).attr('stroke','#bbb').attr('stroke-width',1.2);
+  const seen={};bars.forEach((b,i)=>{if(b.type==='delta'&&!seen[b.group]){seen[b.group]=true;
+    const members=bars.filter(z=>z.group===b.group&&z.type==='delta');const lastIdx=bars.indexOf(members[members.length-1]);
+    g.append('text').attr('x',(x(i)+x(lastIdx)+x.bandwidth())/2).attr('y',mT-22).attr('text-anchor','middle').attr('font-size',11).attr('font-weight',700).attr('fill','#888').attr('letter-spacing','.04em').text(b.group.toUpperCase());}});
+  for(let i=0;i<bars.length-1;i++){const lvl=bars[i].type==='delta'?bars[i].y1:bars[i].value;
+    g.append('line').attr('x1',x(i)).attr('x2',x(i+1)+x.bandwidth()).attr('y1',y(lvl)).attr('y2',y(lvl)).attr('stroke','#d3d3d3').attr('stroke-dasharray','2,2');}
+  const bw=x.bandwidth();
+  bars.forEach((b,i)=>{
+    const top=b.type==='delta'?Math.max(b.y0,b.y1):Math.max(0,b.value),bot=b.type==='delta'?Math.min(b.y0,b.y1):Math.min(0,b.value);
+    const col=b.type==='sub'?'#5b5b5b':b.type==='total'?'#4E7D1C':(b.value>=0?'#86BC25':'#C0392B');
+    g.append('rect').attr('x',x(i)).attr('y',y(top)).attr('width',bw).attr('height',Math.max(1.5,y(bot)-y(top))).attr('fill',col).attr('rx',2).attr('opacity',b.type==='delta'?.95:1)
+      .append('title').text(b.label+'\n'+fmt(b.value)+(model.pnl.revenue>0?' ('+(b.value/model.pnl.revenue*100).toFixed(1)+'% of rev)':''));
+    g.append('text').attr('x',x(i)+bw/2).attr('y',y(top)-5).attr('text-anchor','middle').attr('font-size',10.5).attr('font-weight',600).attr('fill',b.value<0?'#b0392b':'#3c7a12').text((b.value>=0?'+':'')+fmt(b.value));
+    const lbl=b.label.length>16?b.label.slice(0,15)+'…':b.label;
+    g.append('text').attr('transform','translate('+(x(i)+bw/2)+','+(H-mB+12)+') rotate(-32)').attr('text-anchor','end').attr('font-size',10.5).attr('font-weight',b.type==='delta'?400:700).attr('fill','#444').text(lbl)
+      .append('title').text(b.label);
+  });
+}
+function renderCfDimension(){
+  const svg=d3.select('#cfChart');svg.selectAll('*').remove();
+  const arr=state.cfMode==='segment'?model.dimCash.bySegment:model.dimCash.byGeography;
+  const W=1160,H=480,mL=180,mR=90,mT=50,mB=30;svg.attr('viewBox','0 0 '+W+' '+H);
+  svg.append('text').attr('x',mL).attr('y',26).attr('font-size',14).attr('font-weight',700).attr('fill','#282728').text((model.dimCash.metric||'Cash metric')+' by '+(state.cfMode==='segment'?'segment':'geography'));
+  const data=(arr||[]).filter(d=>d.name);
+  if(!data.length){svg.append('text').attr('x',W/2).attr('y',H/2).attr('text-anchor','middle').attr('font-size',14).attr('fill','#999').text('Not disclosed by this dimension in the filing.');return;}
+  const mx=Math.max.apply(null,data.map(d=>Math.abs(num(d.value))))||1;
+  const y=d3.scaleBand().domain(data.map(d=>d.name)).range([mT,H-mB]).padding(.28);
+  const x=d3.scaleLinear().domain([0,mx]).range([mL,W-mR]);
+  data.forEach(d=>{const v=Math.abs(num(d.value));
+    svg.append('text').attr('x',mL-10).attr('y',y(d.name)+y.bandwidth()/2).attr('dy','.32em').attr('text-anchor','end').attr('font-size',12).attr('fill','#444').text(d.name);
+    svg.append('rect').attr('x',mL).attr('y',y(d.name)).attr('width',Math.max(0,x(v)-mL)).attr('height',y.bandwidth()).attr('fill','#00A3E0').attr('rx',3);
+    svg.append('text').attr('x',x(v)+8).attr('y',y(d.name)+y.bandwidth()/2).attr('dy','.32em').attr('font-size',12).attr('font-weight',600).attr('fill','#444').text(fmt(num(d.value)));});
+}
+function cfModeAvail(){const d=model.dimCash;return{consolidated:true,segment:d.bySegment&&d.bySegment.length>0,geography:d.byGeography&&d.byGeography.length>0};}
+function renderCfModes(){
+  const av=cfModeAvail();if(!av[state.cfMode])state.cfMode='consolidated';
+  const labels={consolidated:'Waterfall',segment:(model.dimCash.metric||'Metric')+' by segment',geography:(model.dimCash.metric||'Metric')+' by geography'};
+  const bar=$('#cfModes');bar.innerHTML='';
+  Object.keys(labels).forEach(k=>{const b=document.createElement('button');b.className='chip'+(state.cfMode===k?' active':'');
+    b.textContent=labels[k];b.disabled=!av[k];if(!av[k]&&k!=='consolidated')b.title='No cash metric disclosed by this dimension';
+    b.onclick=()=>{if(av[k]){state.cfMode=k;renderCfModes();renderWaterfall();}};bar.appendChild(b);});
+}
+function renderCfKpis(){
+  const c=model.cf,nc=c.netChange,pn=model.cfPrior.netChange;
+  kpis('#cfKpis',[
+    kpiSigned('Net change in cash',nc,pn!=null&&pn!==0?'vs '+fmt(pn)+' prior year':''),
+    kpiSigned('Operating cash flow',c.cfo),
+    kpiSigned('Investing cash flow',c.cfi),
+    kpiSigned('Financing cash flow',c.cff)
+  ]);
+}
+function kpi(label,val,g,sub){return{label,val,g,sub};}
+function kpiDays(label,v,prior){const sub=prior!=null?'vs '+prior.toFixed(0)+' days prior':'';return{label,val:v==null?'—':v.toFixed(0)+' days',sub};}
+function kpiSigned(label,v,sub){return{label,val:fmt(v),signed:v,sub};}
+function kpis(sel,list){
+  $(sel).innerHTML=list.map(c=>{
+    let delta='';
+    if(c.g!=null){const cls=c.g>=0?'pos':'neg';delta='<div class="kpi-delta '+cls+'">'+(c.g>=0?'▲':'▼')+' '+Math.abs(c.g).toFixed(1)+'% vs prior year</div>';}
+    else if(c.signed!=null){const cls=c.signed>=0?'pos':'neg';delta='<div class="kpi-delta '+cls+'">'+(c.signed>=0?'net inflow':'net outflow')+'</div>';}
+    const sub=c.sub?'<div class="kpi-sub">'+c.sub+'</div>':'';
+    return '<div class="kpi"><div class="kpi-label">'+c.label+'</div><div class="kpi-val">'+c.val+'</div>'+delta+sub+'</div>';
+  }).join('');
+}
+function ovCard(title,color,items,cls){return '<div class="ov-card '+(cls||'')+'"><h4><span class="pin" style="background:'+color+'"></span>'+title+'</h4><ul>'+items.map(i=>'<li>'+esc(i)+'</li>').join('')+'</ul></div>';}
+function autoSummary(){const P=model.pnl,gr=growth(P.revenue,model.prior.revenue),ng=growth(P.netIncome,model.prior.netIncome);
+  return model.company+' reported revenue of '+fmt(P.revenue)+(gr!=null?' ('+(gr>=0?'+':'')+gr.toFixed(1)+'% year over year)':'')+' and net income of '+fmt(P.netIncome)+(ng!=null?' ('+(ng>=0?'+':'')+ng.toFixed(1)+'%)':'')+'. Total assets stood at '+fmt(model.bs.totalAssets)+' with equity of '+fmt(model.bs.totalEquity)+", and the year's net change in cash was "+fmt(model.cf.netChange)+'.';}
+function autoFindings(){const P=model.pnl,out=[];const gr=growth(P.revenue,model.prior.revenue);
+  if(gr!=null)out.push('Revenue '+(gr>=0?'grew':'declined')+' '+Math.abs(gr).toFixed(1)+'% to '+fmt(P.revenue)+'.');
+  if(P.revenue>0)out.push('Gross margin of '+(P.grossProfit/P.revenue*100).toFixed(1)+'% and net margin of '+(P.netIncome/P.revenue*100).toFixed(1)+'%.');
+  out.push('Operating cash flow of '+fmt(model.cf.cfo)+' against '+fmt(Math.abs(model.cf.cff))+' of net financing '+(model.cf.cff<0?'outflows':'inflows')+'.');
+  if(model.bs.totalEquity!==0)out.push('Balance sheet: '+fmt(model.bs.totalAssets)+' of assets, '+fmt(model.bs.totalLiabilities)+' of liabilities.');
+  return out;}
+function fact(label,val){return '<div class="kpi"><div class="kpi-label">'+label+'</div><div class="kpi-val" style="font-size:17px">'+esc(val||'—')+'</div></div>';}
+function drawFiveYear(series){
+  const svg=d3.select('#companyChart');if(svg.empty())return;svg.selectAll('*').remove();
+  const W=1100,H=240,mL=64,mR=20,mT=24,mB=34;
+  const mx=Math.max.apply(null,series.map(d=>d.revenue))||1;
+  const x=d3.scaleBand().domain(series.map(d=>d.year)).range([mL,W-mR]).padding(.35);
+  const y=d3.scaleLinear().domain([0,mx*1.12]).range([H-mB,mT]);
+  y.ticks(4).forEach(t=>{svg.append('line').attr('x1',mL).attr('x2',W-mR).attr('y1',y(t)).attr('y2',y(t)).attr('stroke','#eee');
+    svg.append('text').attr('x',mL-8).attr('y',y(t)).attr('dy','.32em').attr('text-anchor','end').attr('font-size',10).attr('fill','#999').text(fmt(t));});
+  series.forEach(d=>{svg.append('rect').attr('x',x(d.year)).attr('y',y(d.revenue)).attr('width',x.bandwidth()).attr('height',H-mB-y(d.revenue)).attr('fill','#86BC25').attr('rx',3)
+      .append('title').text(d.year+': '+fmt(d.revenue));
+    svg.append('text').attr('x',x(d.year)+x.bandwidth()/2).attr('y',y(d.revenue)-6).attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600).attr('fill','#3c5e12').text(fmt(d.revenue));
+    svg.append('text').attr('x',x(d.year)+x.bandwidth()/2).attr('y',H-mB+16).attr('text-anchor','middle').attr('font-size',11).attr('fill','#444').text(d.year);});
+}
+function isSubject(n){const a=(n||'').toLowerCase().trim();const b=(model.company||'').toLowerCase().trim();return !!a&&!!b&&(b.indexOf(a)>=0||a.indexOf(b)>=0);}
+function drawPositioning(){
+  const svg=d3.select('#posChart');if(svg.empty())return;svg.selectAll('*').remove();
+  const pts=(model.profile.positioning||[]).filter(p=>p.name);if(!pts.length)return;
+  const W=520,H=380,m=52;
+  const x=d3.scaleLinear().domain([0,100]).range([m,W-m]);
+  const y=d3.scaleLinear().domain([0,100]).range([H-m,20]);
+  svg.append('rect').attr('x',m).attr('y',20).attr('width',W-2*m).attr('height',H-m-20).attr('fill','#fafbf8').attr('stroke','#e6e6e6');
+  svg.append('line').attr('x1',x(50)).attr('x2',x(50)).attr('y1',20).attr('y2',H-m).attr('stroke','#e0e0e0').attr('stroke-dasharray','3,3');
+  svg.append('line').attr('x1',m).attr('x2',W-m).attr('y1',y(50)).attr('y2',y(50)).attr('stroke','#e0e0e0').attr('stroke-dasharray','3,3');
+  svg.append('text').attr('x',W/2).attr('y',H-14).attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600).attr('fill','#777').text('Lower price  \u2192  Premium');
+  svg.append('text').attr('transform','translate(16,'+(H-m+20)/2+') rotate(-90)').attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600).attr('fill','#777').text('Lower quality  \u2192  Higher quality');
+  let bi=0;
+  pts.forEach(p=>{const co=isSubject(p.name);const fill=co?'#86BC25':BLUE[bi++%BLUE.length];
+    svg.append('circle').attr('cx',x(p.cost)).attr('cy',y(p.quality)).attr('r',co?9:7).attr('fill',fill).attr('stroke',co?'#3c5e12':'#fff').attr('stroke-width',co?2.5:1.5)
+      .append('title').text(p.name+'\nprice '+p.cost+'/100, quality '+p.quality+'/100');
+    svg.append('text').attr('x',x(p.cost)+(p.cost>80?-11:11)).attr('y',y(p.quality)+4).attr('text-anchor',p.cost>80?'end':'start')
+      .attr('font-size',12).attr('font-weight',co?700:600).attr('fill',co?'#3c5e12':'#444').text(p.name);});
+}
+function drawPie(){
+  const svg=d3.select('#shareChart');if(svg.empty())return;svg.selectAll('*').remove();
+  let data=(model.profile.marketShareBreakdown||[]).filter(d=>d.name&&num(d.share)>0).map(d=>({name:d.name,share:num(d.share)}));
+  if(!data.length)return;
+  const sum=data.reduce((a,d)=>a+d.share,0);
+  if(sum<99.5){const rem=100-sum;if(rem>0.5)data=data.concat([{name:'All other',share:rem,other:true}]);}
+  const total=data.reduce((a,d)=>a+d.share,0)||1;
+  const W=520,H=300,r=108,cx=150,cy=H/2;
+  const pie=d3.pie().sort(null).value(d=>d.share);const arc=d3.arc().innerRadius(0).outerRadius(r);
+  const g=svg.append('g').attr('transform','translate('+cx+','+cy+')');
+  let bi=0;const colors=data.map(d=>d.other?'#bdbdbd':(isSubject(d.name)?'#86BC25':BLUE[bi++%BLUE.length]));
+  pie(data).forEach((a,i)=>{g.append('path').attr('d',arc(a)).attr('fill',colors[i]).attr('stroke','#fff').attr('stroke-width',1.5)
+    .append('title').text(data[i].name+': '+(data[i].share/total*100).toFixed(1)+'%');});
+  const lx=2*cx+24;let ly=cy-r;
+  data.forEach((d,i)=>{const pct=(d.share/total*100).toFixed(1)+'%';
+    svg.append('rect').attr('x',lx).attr('y',ly).attr('width',13).attr('height',13).attr('rx',2).attr('fill',colors[i]);
+    svg.append('text').attr('x',lx+19).attr('y',ly+11).attr('font-size',12.5).attr('font-weight',isSubject(d.name)?700:400).attr('fill','#333').text(d.name+' · '+pct);
+    ly+=23;});
+}
+function renderCompany(){
+  const el=$('#companyPanel'),pf=model.profile;
+  const rings='<svg class="rings" viewBox="0 0 200 200"><circle cx="120" cy="80" r="78" fill="none" stroke="#86BC25" stroke-width="1.2" opacity=".4"/><circle cx="120" cy="80" r="56" fill="none" stroke="#00A3E0" stroke-width="1.2" opacity=".35"/><circle cx="120" cy="80" r="34" fill="none" stroke="#86EB22" stroke-width="1.2" opacity=".35"/></svg>';
+  if(!hasData()&&!pf){el.innerHTML='<div class="ov-hero">'+rings+'<div class="ov-eyebrow">Company</div><div class="ov-headline">Profile the <em>business</em> first</div><div class="ov-summary">Structure a 10-K with Claude (or load the example) to populate what the company does, its competitors, positioning, segmentation, channels, and five-year growth.</div></div>';return;}
+  const p=pf||{};
+  const tickerLine=[p.ticker,p.exchange].filter(Boolean).join(' · ');
+  const sectorLine=[p.sector,p.industry].filter(Boolean).join(' · ');
+  let h='<div class="ov-hero">'+rings+
+    '<div class="ov-eyebrow">'+esc(sectorLine||'Company profile')+'</div>'+
+    '<div class="ov-headline">'+esc(model.company||'Company')+(tickerLine?' <span style="font-size:16px;color:#5a5a5a;font-weight:600">('+esc(tickerLine)+')</span>':'')+'</div>'+
+    (p.description?'<div class="ov-summary">'+esc(p.description)+'</div>':'')+'</div>';
+  const facts=[['Headquarters',p.headquarters],['Founded',p.founded],['Employees',p.employees],['Ticker',p.ticker]].filter(f=>f[1]);
+  if(facts.length)h+='<div class="kpis" style="margin-top:16px">'+facts.map(f=>fact(f[0],f[1])).join('')+'</div>';
+  const cards=[];
+  if(p.businessModel)cards.push(ovCard('What it does','#86BC25',[p.businessModel]));
+  if(p.segmentation)cards.push(ovCard('How it segments','#00A3E0',[p.segmentation]));
+  if(p.channels&&p.channels.length)cards.push(ovCard('Channels','#0E7BAA',p.channels.map(c=>c.name)));
+  if(p.differentiation&&p.differentiation.length)cards.push(ovCard('Differentiation','#86BC25',p.differentiation.map(c=>c.name)));
+  if((p.competitors&&p.competitors.length)||p.marketPosition||p.marketShare){
+    let inner='<div class="ov-card"><h4><span class="pin" style="background:#E8A317"></span>Competitors &amp; market position</h4>';
+    if(p.competitors&&p.competitors.length)inner+='<div style="margin-bottom:10px">'+p.competitors.map(c=>'<span style="display:inline-block;background:#f0f3ea;border:1px solid #dce6cb;color:#3c5e12;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;margin:0 6px 6px 0">'+esc(c.name)+'</span>').join('')+'</div>';
+    if(p.marketPosition)inner+='<div style="font-size:14px;margin-bottom:6px"><b>Position:</b> '+esc(p.marketPosition)+'</div>';
+    if(p.marketShare)inner+='<div style="font-size:14px"><b>Share:</b> '+esc(p.marketShare)+'</div>';
+    inner+='</div>';cards.push(inner);
+  }
+  if((p.positioning||[]).some(z=>z.name))cards.push('<div class="ov-card"><h4><span class="pin" style="background:#00A3E0"></span>Cost vs quality</h4><svg class="viz" id="posChart" viewBox="0 0 520 380" preserveAspectRatio="xMidYMid meet" style="max-height:380px"></svg></div>');
+  const msbCard=(p.marketShareBreakdown||[]).some(z=>z.name&&num(z.share)>0);
+  if(msbCard)cards.push('<div class="ov-card"><h4><span class="pin" style="background:#86BC25"></span>Market share (estimated)</h4><svg class="viz" id="shareChart" viewBox="0 0 520 300" preserveAspectRatio="xMidYMid meet" style="max-height:300px"></svg></div>');
+  const fy=(p.fiveYearRevenue||[]).filter(d=>d.revenue>0);
+  let series=fy;
+  if(!series.length){const fb=[];if(model.prior.revenue>0)fb.push({year:model.priorPeriod||'Prior',revenue:model.prior.revenue});if(model.pnl.revenue>0)fb.push({year:model.period||'Current',revenue:model.pnl.revenue});series=fb;}
+  let fyCard='';
+  if(series.length>=2){const first=series[0].revenue,last=series[series.length-1].revenue,n=series.length-1;
+    const cagr=first>0?(Math.pow(last/first,1/n)-1)*100:null;
+    fyCard='<div class="ov-card findings"><h4><span class="pin" style="background:#4E7D1C"></span>Five-year revenue'+(cagr!=null?' · '+(cagr>=0?'+':'')+cagr.toFixed(1)+'% CAGR':'')+'</h4><svg class="viz" id="companyChart" viewBox="0 0 1100 240" preserveAspectRatio="xMidYMid meet" style="max-height:260px"></svg></div>';}
+  h+='<div class="ov-grid">'+cards.join('')+fyCard+'</div>';
+  h+='<div class="hint" style="margin-top:14px">Positioning, market share, and the five-year series may draw on general market knowledge beyond this single filing — verify before relying on them.'+(pf?'':' Structure a filing with Claude to populate the full profile.')+'</div>';
+  el.innerHTML=h;
+  if(series.length>=2)drawFiveYear(series);
+  drawPositioning();drawPie();
+}
+function renderOverview(){
+  const p=$('#ovPanel');
+  if(!hasData()){p.innerHTML='<div class="ov-hero"><div class="ov-eyebrow">10-K summary</div><div class="ov-headline">Load a filing to see the <em>story</em></div><div class="ov-summary">Paste a 10-K and structure it, or load the example. The largest findings, outlook, and risks land here, with a snapshot of the numbers.</div></div>';return;}
+  const P=model.pnl,b=model.bs,c=model.cf,n=model.narrative;
+  const snap=[
+    kpi('Revenue',fmt(P.revenue),growth(P.revenue,model.prior.revenue)),
+    kpi('Net income',fmt(P.netIncome),growth(P.netIncome,model.prior.netIncome)),
+    kpi('Total assets',fmt(b.totalAssets),growth(b.totalAssets,model.bsPrior.totalAssets)),
+    kpiSigned('Net change in cash',c.netChange)
+  ];
+  const grRev=growth(P.revenue,model.prior.revenue);
+  const head=n&&n.headline?n.headline:(model.company+': '+(grRev!=null&&grRev>=0?'revenue up':'revenue down')+' year over year');
+  const summary=n&&n.summary?n.summary:autoSummary();
+  const rings='<svg class="rings" viewBox="0 0 200 200"><circle cx="120" cy="80" r="78" fill="none" stroke="#86BC25" stroke-width="1.2" opacity=".4"/><circle cx="120" cy="80" r="56" fill="none" stroke="#00A3E0" stroke-width="1.2" opacity=".35"/><circle cx="120" cy="80" r="34" fill="none" stroke="#86EB22" stroke-width="1.2" opacity=".35"/></svg>';
+  const cards=[];
+  if(n&&n.findings&&n.findings.length)cards.push(ovCard('Largest findings','#86BC25',n.findings,'findings'));
+  if(n&&n.outlook&&n.outlook.length)cards.push(ovCard('Outlook','#00A3E0',n.outlook));
+  if(n&&n.risks&&n.risks.length)cards.push(ovCard('Key risks','#C0392B',n.risks));
+  if(n&&n.capitalAllocation&&n.capitalAllocation.length)cards.push(ovCard('Capital allocation','#E8A317',n.capitalAllocation));
+  if(!cards.length)cards.push(ovCard('Highlights','#86BC25',autoFindings(),'findings'));
+  const snapHtml=snap.map(c=>{let d='';if(c.g!=null){const cl=c.g>=0?'pos':'neg';d='<div class="kpi-delta '+cl+'">'+(c.g>=0?'▲':'▼')+' '+Math.abs(c.g).toFixed(1)+'% YoY</div>';}else if(c.signed!=null){const cl=c.signed>=0?'pos':'neg';d='<div class="kpi-delta '+cl+'">'+(c.signed>=0?'net inflow':'net outflow')+'</div>';}return '<div class="kpi"><div class="kpi-label">'+c.label+'</div><div class="kpi-val">'+c.val+'</div>'+d+'</div>';}).join('');
+  p.innerHTML='<div class="ov-hero">'+rings+'<div class="ov-eyebrow">'+esc(model.period||'Latest fiscal year')+' · 10-K summary</div>'+
+    '<div class="ov-headline">'+esc(head)+'</div><div class="ov-summary">'+esc(summary)+'</div></div>'+
+    '<div class="kpis" style="margin-top:16px">'+snapHtml+'</div>'+
+    '<div class="ov-grid">'+cards.join('')+'</div>'+
+    (n?'':'<div class="hint" style="margin-top:14px">Tip: the written overview (findings, outlook, risks) is generated when you structure a filing with Claude. These highlights are derived from the numbers you entered.</div>');
+}
+function gridRows(group,cols){
+  return getP(group).map((item,i)=>{
+    const cells=cols.map(c=>{const v=item[c.key]==null?'':item[c.key];
+      return '<td><input data-field="group" data-group="'+group+'" data-idx="'+i+'" data-key="'+c.key+'" class="'+(c.num?'num':'')+'" value="'+String(v).replace(/"/g,'&quot;')+'" placeholder="'+(c.ph||'')+'"/></td>';}).join('');
+    return '<tr>'+cells+'<td><button class="delrow" data-action="del" data-group="'+group+'" data-idx="'+i+'">×</button></td></tr>';
+  }).join('');
+}
+function grid(group,cols,addLabel){
+  return '<table class="grid"><thead><tr>'+cols.map(c=>'<th'+(c.w?' style="width:'+c.w+'"':'')+'>'+c.h+'</th>').join('')+'<th style="width:34px"></th></tr></thead>'+
+    '<tbody>'+gridRows(group,cols)+'</tbody></table><button class="b b-ghost b-sm" style="margin-top:6px" data-action="add" data-group="'+group+'">+ '+addLabel+'</button>';
+}
+function simple(label,key,opts){opts=opts||{};const v=getP(key);return '<div class="field"><label>'+label+'</label><input data-field="simple" data-key="'+key+'" class="'+(opts.num?'num':'')+'" value="'+(v==null?'':String(v).replace(/"/g,'&quot;'))+'" placeholder="'+(opts.ph||'')+'"/></div>';}
+function unitsField(){return '<div class="field"><label>Currency / units</label><input data-field="simple" data-key="currency" style="flex:0 0 70px" value="'+(model.currency||'USD')+'"/><select data-field="simple" data-key="units">'+['billions','millions','thousands','absolute'].map(u=>'<option '+(model.units===u?'selected':'')+'>'+u+'</option>').join('')+'</select></div>';}
+function subBox(rows){return '<div class="subtotals">'+rows.map(r=>'<div class="'+(r[2]?'accent':'')+'"><span>'+r[0]+'</span><span id="'+r[1].slice(1)+'">—</span></div>').join('')+'</div>';}
+function area(label,key){const v=getP(key);return '<div class="field" style="align-items:flex-start"><label style="padding-top:6px">'+label+'</label><textarea data-field="simple" data-key="'+key+'" style="flex:1;min-height:58px;font-size:13px;line-height:1.4">'+esc(v||'')+'</textarea></div>';}
+function emptyProfile(){return {description:'',sector:'',industry:'',headquarters:'',founded:'',employees:'',ticker:'',exchange:'',businessModel:'',segmentation:'',marketPosition:'',marketShare:'',channels:[],competitors:[],differentiation:[],positioning:[],marketShareBreakdown:[],fiveYearRevenue:[]};}
+function buildEditor(){
+  const e=$('#editor');const tab=state.tab;let h='';
+  h+=simple('Company','company')+simple('Fiscal year','period',{ph:'FY2024'})+unitsField();
+  if(tab==='company'){
+    if(!model.profile)model.profile=emptyProfile();
+    h+=area('Description','profile.description');
+    h+=simple('Sector','profile.sector')+simple('Industry','profile.industry')+simple('Headquarters','profile.headquarters')+simple('Founded','profile.founded')+simple('Employees','profile.employees')+simple('Ticker','profile.ticker')+simple('Exchange','profile.exchange');
+    h+=area('Business model','profile.businessModel')+area('How it segments','profile.segmentation');
+    h+='<h3 class="eh">Channels</h3>'+grid('profile.channels',[{h:'Channel',key:'name'}],'Add channel');
+    h+='<h3 class="eh">Competitors</h3>'+grid('profile.competitors',[{h:'Competitor',key:'name'}],'Add competitor');
+    h+='<h3 class="eh">Differentiation</h3>'+grid('profile.differentiation',[{h:'Point',key:'name'}],'Add point');
+    h+=area('Market position','profile.marketPosition')+simple('Market share','profile.marketShare');
+    h+='<h3 class="eh">Cost vs quality (0–100)</h3>'+grid('profile.positioning',[{h:'Player',key:'name'},{h:'Price',key:'cost',num:1},{h:'Quality',key:'quality',num:1}],'Add player');
+    h+='<h3 class="eh">Market share (%) — company &amp; top competitors</h3>'+grid('profile.marketShareBreakdown',[{h:'Player',key:'name'},{h:'Share %',key:'share',num:1,w:'34%'}],'Add player');
+    h+='<h3 class="eh">Five-year revenue</h3>'+grid('profile.fiveYearRevenue',[{h:'Year',key:'year'},{h:'Revenue',key:'revenue',num:1,w:'40%'}],'Add year');
+    e.innerHTML=h;updateSub();return;
+  }
+  if(tab==='pnl'||tab==='overview'){
+    h+='<h3 class="eh">Income statement (current)</h3>'+simple('Revenue','pnl.revenue',{num:1})+simple('Cost of revenue','pnl.costOfRevenue',{num:1});
+    h+='<h3 class="eh">Operating expenses</h3>'+grid('pnl.operatingExpenses',[{h:'Line item',key:'name'},{h:'Amount',key:'value',num:1,w:'36%'}],'Add expense');
+    h+='<h3 class="eh">Below the line (signed: income +, expense −)</h3>'+grid('pnl.nonOperating',[{h:'Item',key:'name'},{h:'Signed',key:'value',num:1,w:'36%'}],'Add item');
+    h+=simple('Income tax (+exp / −ben)','pnl.incomeTax',{num:1});
+    h+='<h3 class="eh">Prior year (for growth %)</h3>'+simple('Revenue','prior.revenue',{num:1})+simple('Cost of revenue','prior.costOfRevenue',{num:1})+simple('Operating income','prior.operatingIncome',{num:1})+simple('Net income','prior.netIncome',{num:1});
+    h+='<h3 class="eh">Segments (op. income optional → unlocks Segment P&L)</h3>'+grid('segments',[{h:'Segment',key:'name'},{h:'Revenue',key:'revenue',num:1},{h:'Op. inc.',key:'operatingIncome',num:1,ph:'opt'}],'Add segment');
+    h+='<h3 class="eh">Geography</h3>'+grid('geographies',[{h:'Region',key:'name'},{h:'Revenue',key:'revenue',num:1,w:'36%'}],'Add region');
+    h+=subBox([['Gross profit','#st-gp'],['Operating income','#st-oi'],['Pre-tax income','#st-pt'],['Net income','#st-ni',true]]);
+  } else if(tab==='bs'){
+    h+='<h3 class="eh">Current assets</h3>'+grid('bs.currentAssets',[{h:'Item',key:'name'},{h:'Value',key:'value',num:1,w:'36%'}],'Add');
+    h+='<h3 class="eh">Non-current assets</h3>'+grid('bs.nonCurrentAssets',[{h:'Item',key:'name'},{h:'Value',key:'value',num:1,w:'36%'}],'Add');
+    h+='<h3 class="eh">Current liabilities</h3>'+grid('bs.currentLiabilities',[{h:'Item',key:'name'},{h:'Value',key:'value',num:1,w:'36%'}],'Add');
+    h+='<h3 class="eh">Non-current liabilities</h3>'+grid('bs.nonCurrentLiabilities',[{h:'Item',key:'name'},{h:'Value',key:'value',num:1,w:'36%'}],'Add');
+    h+='<h3 class="eh">Equity (deficits negative)</h3>'+grid('bs.equity',[{h:'Item',key:'name'},{h:'Value',key:'value',num:1,w:'36%'}],'Add');
+    h+='<h3 class="eh">Prior year (for growth & turns)</h3>'+simple('Total assets','bsPrior.totalAssets',{num:1})+simple('Total liabilities','bsPrior.totalLiabilities',{num:1})+simple('Total equity','bsPrior.totalEquity',{num:1})+simple('Accounts receivable','bsPrior.accountsReceivable',{num:1})+simple('Accounts payable','bsPrior.accountsPayable',{num:1});
+    h+=subBox([['Total assets','#st-ta'],['Total liabilities','#st-tl'],['Total equity','#st-te',true]]);
+  } else if(tab==='cf'){
+    h+='<h3 class="eh">Operating (signed: inflow +, outflow −)</h3>'+grid('cf.operating',[{h:'Item',key:'name'},{h:'Signed',key:'value',num:1,w:'36%'}],'Add');
+    h+='<h3 class="eh">Investing</h3>'+grid('cf.investing',[{h:'Item',key:'name'},{h:'Signed',key:'value',num:1,w:'36%'}],'Add');
+    h+='<h3 class="eh">Financing</h3>'+grid('cf.financing',[{h:'Item',key:'name'},{h:'Signed',key:'value',num:1,w:'36%'}],'Add');
+    h+=simple('FX effect on cash','cf.fxEffect',{num:1})+simple('Beginning cash','cf.beginningCash',{num:1})+simple('Prior-yr net change','cfPrior.netChange',{num:1});
+    h+=subBox([['Operating CF','#st-cfo'],['Investing CF','#st-cfi'],['Financing CF','#st-cff'],['Net change','#st-nc',true]]);
+  }
+  e.innerHTML=h;updateSub();
+}
+function updateSub(){
+  const set=(id,v)=>{const el=$(id);if(el)el.textContent=hasData()?fmt(v):'—';};
+  const P=model.pnl,b=model.bs,c=model.cf;
+  set('#st-gp',P.grossProfit);set('#st-oi',P.operatingIncome);set('#st-pt',P.pretaxIncome);set('#st-ni',P.netIncome);
+  set('#st-ta',b.totalAssets);set('#st-tl',b.totalLiabilities);set('#st-te',b.totalEquity);
+  set('#st-cfo',c.cfo);set('#st-cfi',c.cfi);set('#st-cff',c.cff);set('#st-nc',c.netChange);
+}
+$('#editor').addEventListener('input',ev=>{
+  const el=ev.target,f=el.dataset.field;if(!f)return;
+  if(f==='simple'){const k=el.dataset.key;const last=k.split('.').pop();setP(k,STR_KEYS.has(last)?el.value:num(el.value));}
+  else if(f==='group'){const arr=getP(el.dataset.group),i=+el.dataset.idx,key=el.dataset.key;
+    if(key==='name')arr[i][key]=el.value;else if(key==='year')arr[i][key]=el.value;else if(key==='operatingIncome')arr[i][key]=el.value.trim()===''?null:num(el.value);else arr[i][key]=num(el.value);}
+  renderAll();
+});
+$('#editor').addEventListener('click',ev=>{
+  const a=ev.target.dataset.action;if(!a)return;const grp=ev.target.dataset.group,seg=grp.split('.').pop();
+  if(a==='add'){const tmpl=seg==='segments'?{name:'New segment',revenue:0,operatingIncome:null}:seg==='geographies'?{name:'New region',revenue:0}:seg==='fiveYearRevenue'?{year:'',revenue:0}:seg==='positioning'?{name:'',cost:50,quality:50}:seg==='marketShareBreakdown'?{name:'',share:0}:(seg==='channels'||seg==='competitors'||seg==='differentiation')?{name:''}:{name:'New item',value:0};getP(grp).push(tmpl);buildEditor();renderAll();}
+  else if(a==='del'){getP(grp).splice(+ev.target.dataset.idx,1);buildEditor();renderAll();}
+});
+function setTab(t){
+  state.tab=t;
+  $$('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
+  $$('.tabpanel').forEach(p=>p.classList.toggle('active',p.dataset.panel===t));
+  buildEditor();renderActive();
+}
+function renderActive(){
+  if(state.tab==='company')renderCompany();
+  else if(state.tab==='overview')renderOverview();
+  else if(state.tab==='pnl'){renderPnlKpis();renderPnlModes();renderPnlWarn();renderSankey();}
+  else if(state.tab==='bs'){renderBsKpis();renderBsWarn();renderTreemap();}
+  else if(state.tab==='cf'){renderCfKpis();renderCfModes();renderWaterfall();}
+}
+function renderAll(){
+  recompute();updateSub();
+  $('#companyTag').innerHTML=hasData()?('<b>'+esc(model.company||'Company')+'</b> · '+esc(model.period||'')+' · '+model.currency+' '+model.units):'No filing loaded';
+  renderActive();
+}
+function safeName(){return (model.company||'company').replace(/[^a-z0-9]+/gi,'_').replace(/^_|_$/g,'');}
+function serialize(svgEl){const svg=svgEl.cloneNode(true);svg.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  const vb=svg.getAttribute('viewBox').split(' ').map(Number);const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  r.setAttribute('width',vb[2]);r.setAttribute('height',vb[3]);r.setAttribute('fill','#fff');svg.insertBefore(r,svg.firstChild);
+  return {str:new XMLSerializer().serializeToString(svg),w:vb[2],h:vb[3]};}
+function dl(blob,name){const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1500);}
+$$('[data-export]').forEach(btn=>btn.addEventListener('click',()=>{
+  const el=document.getElementById(btn.dataset.svg);if(!el||!el.querySelector('g'))return;
+  const s=serialize(el),tag=btn.dataset.svg.replace('Chart','');
+  if(btn.dataset.export==='svg')dl(new Blob([s.str],{type:'image/svg+xml;charset=utf-8'}),safeName()+'_'+tag+'.svg');
+  else{const img=new Image();img.onload=()=>{const c=document.createElement('canvas');c.width=s.w*2;c.height=s.h*2;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);c.toBlob(b=>dl(b,safeName()+'_'+tag+'.png'),'image/png');};img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(s.str)));}
+}));
+$('#fileBtn').addEventListener('click',()=>$('#fileInput').click());
+$('#fileInput').addEventListener('change',ev=>{const f=ev.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{let t=r.result;if(/\.html?$/i.test(f.name)){const d=new DOMParser().parseFromString(t,'text/html');t=(d.body&&d.body.innerText)||t;}$('#src').value=t.slice(0,300000);setStatus('Loaded "'+f.name+'". Now click "Structure with Claude".','info');};
+  r.readAsText(f);});
+$('#drawerHead').addEventListener('click',()=>$('#drawer').classList.toggle('collapsed'));
+$('#genBtn').addEventListener('click',structureWithClaude);
+$('#fetchBtn').addEventListener('click',fetchFiling);
+$('#ticker').addEventListener('keydown',e=>{if(e.key==='Enter')fetchFiling();});
+function buildExport(){const m=model;return {company:m.company,period:m.period,priorPeriod:m.priorPeriod,currency:m.currency,units:m.units,
+  pnl:{revenue:m.pnl.revenue,costOfRevenue:m.pnl.costOfRevenue,operatingExpenses:m.pnl.operatingExpenses,nonOperating:m.pnl.nonOperating,incomeTax:m.pnl.incomeTax,netIncome:m.pnl.reportedNetIncome},
+  pnlPrior:m.prior,segments:m.segments,geographies:m.geographies,
+  balanceSheet:{currentAssets:m.bs.currentAssets,nonCurrentAssets:m.bs.nonCurrentAssets,currentLiabilities:m.bs.currentLiabilities,nonCurrentLiabilities:m.bs.nonCurrentLiabilities,equity:m.bs.equity},
+  balanceSheetPrior:m.bsPrior,
+  cashFlow:{operating:m.cf.operating,investing:m.cf.investing,financing:m.cf.financing,fxEffect:m.cf.fxEffect,beginningCash:m.cf.beginningCash,endingCash:m.cf.endingCash,netChange:m.cf.reportedNetChange},
+  cashFlowPrior:m.cfPrior,dimensionalCash:m.dimCash,profile:m.profile,narrative:m.narrative};}
+$('#exportBtn').addEventListener('click',()=>{if(!hasData()){setStatus('Nothing to export yet — load a filing first.','err');return;}dl(new Blob([JSON.stringify(buildExport(),null,2)],{type:'application/json'}),safeName()+'_data.json');});
+$('#importBtn').addEventListener('click',()=>$('#jsonInput').click());
+$('#jsonInput').addEventListener('change',ev=>{const f=ev.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{adopt(JSON.parse(r.result));state.pnlMode='consolidated';state.cfMode='consolidated';buildEditor();renderAll();
+    if(!hasData()){setStatus('Imported file has no usable figures — check it matches the export format.','err');return;}
+    setStatus('Imported '+model.company+(model.period?' · '+model.period:'')+'. Explore the tabs; everything is editable.','ok');
+  }catch(e){setStatus('Could not read that JSON ('+e.message+'). Use a file exported from this tool or provided by Claude.','err');}finally{ev.target.value='';}};
+  r.readAsText(f);});
+$('#exampleBtn').addEventListener('click',loadExample);
+$$('#tabs button').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+buildEditor();renderAll();
+</script>
+</body>
+</html>
