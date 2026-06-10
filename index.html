@@ -368,7 +368,7 @@ async function runStructuring(userContent,useSearch,btn){
   setStatus(useSearch?'Searching SEC EDGAR and structuring the filing — this can take 20–40 seconds…':'Structuring all three statements and writing the overview…','info');
   try{
     const messages=[{role:'user',content:userContent}];
-    const base={model:'claude-sonnet-4-20250514',max_tokens:8000,system:SYS};
+    const base={model:'claude-sonnet-4-6',max_tokens:8000,system:SYS};
     if(useSearch)base.tools=[{type:'web_search_20250305',name:'web_search'}];
     let data,guard=0;
     do{
