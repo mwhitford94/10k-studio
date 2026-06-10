@@ -18,9 +18,9 @@ const SCHEMA_PROMPT = [
 '"balanceSheetPrior":{"totalAssets":0,"totalLiabilities":0,"totalEquity":0,"accountsReceivable":0,"accountsPayable":0},',
 '"cashFlow":{"operating":[{"name":"","value":0}],"investing":[{"name":"","value":0}],"financing":[{"name":"","value":0}],"fxEffect":0,"beginningCash":0,"endingCash":0,"netChange":0},',
 '"cashFlowPrior":{"netChange":0},"dimensionalCash":{"metric":"","bySegment":[],"byGeography":[]},',
-'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0}]},',
+'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","marketCap":"","fiscalYearEnd":0,"positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0,"netIncome":0}]},',
 '"narrative":{"headline":"","summary":"","findings":[""],"outlook":[""],"risks":[""],"capitalAllocation":[""]}}',
-'Rules: productCategories = revenue by product line/category ONLY if separately disclosed (e.g. iPhone/Mac/Services); return [] otherwise. channelRevenue = revenue by sales channel ONLY if disclosed; return [] otherwise. most recent fiscal period for current figures, the prior comparable period for *Prior. units one of billions/millions/thousands/absolute. costOfRevenue/operatingExpenses POSITIVE; nonOperating SIGNED (income +, expense -); cashFlow items SIGNED (inflow +, outflow -). Include Accounts receivable and Accounts payable by name. segments operatingIncome null if not disclosed. positioning scores 0-100 (cost: budget->premium, quality: low->high) for the company + main rivals; marketShareBreakdown approximate percents (an "All other" remainder is added by the viewer). fiveYearRevenue = last 5 fiscal years in the same units. narrative in your own words, never copied. Return only the JSON.'
+'Rules: profile.fiscalYearEnd = month number 1-12 (e.g. 9 for September). profile.marketCap = approximate market cap as a short string (e.g. "~$3.4T"), use general knowledge. fiveYearRevenue items include netIncome = reported net income for that year (same units), 0 if unknown. productCategories = revenue by product line/category ONLY if separately disclosed (e.g. iPhone/Mac/Services); return [] otherwise. channelRevenue = revenue by sales channel ONLY if disclosed; return [] otherwise. most recent fiscal period for current figures, the prior comparable period for *Prior. units one of billions/millions/thousands/absolute. costOfRevenue/operatingExpenses POSITIVE; nonOperating SIGNED (income +, expense -); cashFlow items SIGNED (inflow +, outflow -). Include Accounts receivable and Accounts payable by name. segments operatingIncome null if not disclosed. positioning scores 0-100 (cost: budget->premium, quality: low->high) for the company + main rivals; marketShareBreakdown approximate percents (an "All other" remainder is added by the viewer). fiveYearRevenue = last 5 fiscal years in the same units. narrative in your own words, never copied. Return only the JSON.'
 ].join('\n');
 
 async function sec(url, ua) {
@@ -103,6 +103,7 @@ export default async function handler(req, res) {
     const a = out.indexOf('{'), b = out.lastIndexOf('}');
     if (a >= 0 && b > a) out = out.slice(a, b + 1);
     const model = JSON.parse(out);
+    model.filingUrl = url;
 
     res.setHeader('Cache-Control', 's-maxage=86400'); // filings are immutable; cache a day at the edge
     res.status(200).json(model);
