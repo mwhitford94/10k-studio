@@ -249,6 +249,10 @@
         </div>
         <svg id="bsDetailChart" viewBox="0 0 700 170" preserveAspectRatio="xMidYMid meet" style="width:100%;max-height:170px;display:block"></svg>
         <div id="bsDetailMsg" style="font-size:12.5px;color:var(--ink-2);margin-top:10px"></div>
+        <div id="bsDetailNoteWrap" style="display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:600;margin-bottom:4px">MD&amp;A commentary</div>
+          <div id="bsDetailNote" style="font-size:13.5px;line-height:1.55"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -299,6 +303,7 @@ const model={
   bs:{currentAssets:[],nonCurrentAssets:[],currentLiabilities:[],nonCurrentLiabilities:[],equity:[]},
   bsPrior:{totalAssets:0,totalLiabilities:0,totalEquity:0,accountsReceivable:0,accountsPayable:0},
   bsPriorDetail:{currentAssets:[],nonCurrentAssets:[],currentLiabilities:[],nonCurrentLiabilities:[],equity:[]},
+  bsNotes:[],
   cf:{operating:[],investing:[],financing:[],fxEffect:0,beginningCash:0,endingCash:0,reportedNetChange:null},
   cfPrior:{netChange:0},
   cfNotes:[],
@@ -377,6 +382,7 @@ function adopt(p){
   const bpd=p.balanceSheetPriorDetail||{};
   model.bsPriorDetail={currentAssets:mapLI(bpd.currentAssets),nonCurrentAssets:mapLI(bpd.nonCurrentAssets),
     currentLiabilities:mapLI(bpd.currentLiabilities),nonCurrentLiabilities:mapLI(bpd.nonCurrentLiabilities),equity:mapLI(bpd.equity)};
+  model.bsNotes=(p.balanceSheetNotes||[]).map(x=>({item:x.item?String(x.item):'',note:x.note?String(x.note):''})).filter(x=>x.item&&x.note);
   const C=p.cashFlow||{};
   model.cf={operating:(C.operating||[]).map(x=>({name:x.name||'Operating',value:num(x.value)})),
     investing:(C.investing||[]).map(x=>({name:x.name||'Investing',value:num(x.value)})),
@@ -414,6 +420,7 @@ const SYS=[
 '"balanceSheet":{"currentAssets":[{"name":"","value":0}],"nonCurrentAssets":[{"name":"","value":0}],"currentLiabilities":[{"name":"","value":0}],"nonCurrentLiabilities":[{"name":"","value":0}],"equity":[{"name":"","value":0}]},',
 '"balanceSheetPrior":{"totalAssets":0,"totalLiabilities":0,"totalEquity":0,"accountsReceivable":0,"accountsPayable":0},',
 '"balanceSheetPriorDetail":{"currentAssets":[{"name":"","value":0}],"nonCurrentAssets":[{"name":"","value":0}],"currentLiabilities":[{"name":"","value":0}],"nonCurrentLiabilities":[{"name":"","value":0}],"equity":[{"name":"","value":0}]},',
+'"balanceSheetNotes":[{"item":"","note":""}],',
 '"cashFlow":{"operating":[{"name":"","value":0}],"investing":[{"name":"","value":0}],"financing":[{"name":"","value":0}],"fxEffect":0,"beginningCash":0,"endingCash":0,"netChange":0},',
 '"cashFlowPrior":{"netChange":0},',
 '"cashFlowNotes":[{"item":"","note":""}],',
@@ -427,6 +434,7 @@ const SYS=[
 '- pnl.nonOperating SIGNED (income +, expense -). incomeTax + provision, - benefit. netIncome reported.',
 '- balanceSheet line items POSITIVE, split into the four groups + equity, using the filing line labels (include Accounts receivable and Accounts payable by those names).',
 '- balanceSheetPriorDetail: same structure as balanceSheet but for the prior comparable period. Match line names to balanceSheet exactly where possible. Fill with empty arrays if prior BS line items are not available.',
+'- balanceSheetNotes = for each balanceSheet line item that changed meaningfully vs prior year, PLUS the totals "Assets","Liabilities","Equity", 1-2 sentences from the MD&A financial condition / liquidity discussion explaining the change. item must EXACTLY match the balanceSheet line name. Omit items with nothing meaningful; [] if MD&A not available.',
 '- cashFlow items SIGNED (inflow +, outflow -), grouped operating/investing/financing; include D&A, working capital and main drivers; netChange = reported net increase/(decrease) in cash.',
 '- cashFlowNotes = for each major cashFlow line item AND each activity total ("Operating","Investing","Financing","Net change in cash"), 1-2 sentences from the MD&A liquidity & capital resources discussion explaining what drove it. item must EXACTLY match the cashFlow line name. Omit items with nothing meaningful to say; [] if MD&A not available.',
 '- dimensionalCash: ONLY if the filing discloses a cash metric by segment or geography (commonly capital expenditures). Set metric to its name; else metric "" and arrays [].',
@@ -539,6 +547,28 @@ function loadExample(){
       currentLiabilities:[{name:'Accounts payable',value:68960},{name:'Other current liabilities',value:78304},{name:'Deferred revenue',value:8249},{name:'Commercial paper',value:9967},{name:'Term debt (current)',value:10912}],
       nonCurrentLiabilities:[{name:'Term debt',value:85750},{name:'Other non-current liabilities',value:45888}],
       equity:[{name:'Common stock & APIC',value:83276},{name:'Retained earnings / (deficit)',value:-19154},{name:'Accum. other comp. loss',value:-7172}]},
+    balanceSheetNotes:[
+      {item:'Assets',note:'Total assets declined ~1.6% to $359.2B as the planned draw-down of the marketable securities portfolio (funding shareholder returns) outpaced growth in property, plant & equipment and receivables.'},
+      {item:'Liabilities',note:'Total liabilities fell ~7% to $285.5B, driven by lower other current liabilities — including settlement of the accrued European State Aid taxes — and a net reduction in term debt and commercial paper.'},
+      {item:'Equity',note:'Shareholders’ equity rose to $73.7B as record net income exceeded the ~$106B returned through buybacks and dividends, and accumulated other comprehensive losses narrowed.'},
+      {item:'Cash & equivalents',note:'Cash ended the year at $35.9B, up $6.0B, as securities maturities and operating cash flow more than covered capital returns.'},
+      {item:'Marketable securities',note:'Short-term marketable securities fell to $18.8B (from $35.2B) as maturities were used to fund the capital return program, consistent with the net-cash-neutral objective.'},
+      {item:'Marketable securities (LT)',note:'Long-term marketable securities declined to $77.7B (from $91.5B), continuing the multi-year wind-down of the investment portfolio.'},
+      {item:'Accounts receivable, net',note:'Trade receivables rose to $39.8B on strong September-quarter sell-through to carriers and resellers; collection terms were unchanged.'},
+      {item:'Vendor non-trade receivables',note:'Vendor non-trade receivables of $33.2B reflect component sales to manufacturing partners and track the production ramp into the December quarter.'},
+      {item:'Inventories',note:'Inventories declined to $5.7B on tighter channel and component management ahead of product transitions.'},
+      {item:'Property, plant & equipment, net',note:'PP&E grew to $49.8B, reflecting investment in Apple silicon capacity, AI/data-center infrastructure, and corporate facilities.'},
+      {item:'Other non-current assets',note:'Other non-current assets of $83.7B include deferred tax assets and the strategic investment portfolio; the increase largely reflects deferred taxes recognized after the European State Aid decision.'},
+      {item:'Accounts payable',note:'Accounts payable of $69.9B were roughly flat with the prior year, reflecting normal supplier payment timing on higher production volume.'},
+      {item:'Other current liabilities',note:'Other current liabilities fell to $66.4B (from $78.3B), primarily on payment of the accrued European State Aid taxes during the year.'},
+      {item:'Deferred revenue',note:'Deferred revenue grew to $9.1B with continued expansion of services subscriptions and bundled offerings.'},
+      {item:'Commercial paper',note:'Commercial paper outstanding declined to $8.0B as short-term funding needs moderated.'},
+      {item:'Term debt (current)',note:'Current term debt of $12.4B reflects maturities due within twelve months; repayments are funded from operating cash flow.'},
+      {item:'Term debt',note:'Long-term term debt declined to $78.3B as maturities exceeded new issuance — a continued de-levering consistent with the net-cash-neutral target.'},
+      {item:'Other non-current liabilities',note:'Other non-current liabilities of $41.5B decreased, primarily on lower long-term income tax obligations following the State Aid settlement.'},
+      {item:'Common stock & APIC',note:'Common stock and additional paid-in capital rose to $93.6B on share-based compensation, net of shares withheld for employee taxes.'},
+      {item:'Retained earnings / (deficit)',note:'The retained earnings deficit narrowed to $(14.3)B: record net income exceeded dividends and the retirement of repurchased shares, which is charged against retained earnings.'},
+      {item:'Accum. other comp. loss',note:'Accumulated other comprehensive loss improved to $(5.6)B on favorable marks on the securities portfolio and currency hedges as rates declined.'}],
     cashFlow:{operating:[{name:'Net income',value:112010},{name:'Depreciation & amortization',value:11698},{name:'Share-based compensation',value:12863},{name:'Working capital & other',value:-25089}],
       investing:[{name:'Capital expenditures',value:-12715},{name:'Marketable securities, net',value:28963},{name:'Other investing',value:-1053}],
       financing:[{name:'Dividends paid',value:-15421},{name:'Share repurchases',value:-90711},{name:'Net debt repayment',value:-8700},{name:'Taxes / other financing',value:-5854}],
@@ -764,6 +794,12 @@ function showBsItemDetail(name,cat){
   const hasPrior=priorVal!==null&&priorVal>0;
   $('#bsDetailPeriod').textContent=hasPrior?((model.priorPeriod||'Prior')+' → '+(model.period||'Current')):(model.period||'Current');
   drawBsItemWaterfall(name,cat,priorVal,currVal);
+  const note=findNoteIn(model.bsNotes,name);
+  const noteWrap=$('#bsDetailNoteWrap'),noteEl=$('#bsDetailNote');
+  if(noteWrap&&noteEl){
+    if(note){noteEl.textContent=note;noteWrap.style.display='';}
+    else noteWrap.style.display='none';
+  }
   panel.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function drawBsItemWaterfall(name,cat,priorVal,currVal){
@@ -872,12 +908,18 @@ function renderWaterfall(){
       .append('title').text(b.label);
   });
 }
-function findCfNote(label,group){
-  const ns=model.cfNotes||[];const l=(label||'').toLowerCase();
-  let n=ns.find(x=>x.item.toLowerCase()===l);
-  if(!n)n=ns.find(x=>l.includes(x.item.toLowerCase())||x.item.toLowerCase().includes(l));
-  if(!n&&group)n=ns.find(x=>x.item.toLowerCase()===group.toLowerCase());
+function findNoteIn(ns,label){
+  const l=(label||'').toLowerCase();
+  let n=(ns||[]).find(x=>x.item.toLowerCase()===l);
+  if(!n)n=(ns||[]).find(x=>{const xi=x.item.toLowerCase();
+    if(['assets','liabilities','equity','operating','investing','financing'].includes(xi))return false;
+    return l.includes(xi)||xi.includes(l);});
   return n?n.note:null;
+}
+function findCfNote(label,group){
+  let note=findNoteIn(model.cfNotes,label);
+  if(!note&&group)note=findNoteIn(model.cfNotes,group);
+  return note;
 }
 function showCfNote(bar){
   const panel=$('#cfNotes'),lay=$('#cfLayout');if(!panel)return;
@@ -1028,46 +1070,6 @@ function drawPie(){
     svg.append('rect').attr('x',lx).attr('y',ly).attr('width',13).attr('height',13).attr('rx',2).attr('fill',colors[i]);
     svg.append('text').attr('x',lx+19).attr('y',ly+11).attr('font-size',12.5).attr('font-weight',isSubject(d.name)?700:400).attr('fill','#333').text(d.name+' · '+pct);
     ly+=23;});
-}
-function drawFiscalCalendar(fye,targetId){
-  const svgId=targetId||'fiscalCalChart';
-  const svg=d3.select('#'+svgId);if(svg.empty())return;svg.selectAll('*').remove();
-  const fy=Math.max(1,Math.min(12,fye||12));
-  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const startM=fy%12; // 0-indexed first month of fiscal year (fy=9→startM=9 means Oct)
-  // Derive approximate year from model.period (e.g. "FY2024" or "FY2024 · illustrative")
-  const yearMatch=(model.period||'').match(/\d{4}/);
-  const fyYear=yearMatch?parseInt(yearMatch[0]):null;
-  // fyYear is the year the fiscal year ENDS. Start year may be fyYear-1 if fy<12.
-  const startCalYear=fyYear?(fy===12?fyYear:fyYear-1):null;
-  const W=900,H=86,mL=8,mR=8,mT=20,mB=16;
-  const cw=(W-mL-mR)/12;
-  const qCols=['#B7E320','#9BC93F','#6E9C1E','#4E7D1C'];
-  for(let i=0;i<12;i++){
-    const mIdx=(startM+i)%12;
-    const q=Math.floor(i/3);
-    const isFYEnd=(mIdx===fy-1);
-    const x=mL+i*cw;
-    // compute calendar year for this month
-    let yr=null;
-    if(startCalYear){const cy=startCalYear+(mIdx<startM?1:0);yr=cy;}
-    svg.append('rect').attr('x',x+1).attr('y',mT).attr('width',cw-2).attr('height',H-mT-mB)
-      .attr('fill',qCols[q]).attr('rx',3)
-      .attr('stroke',isFYEnd?'#C0392B':'none').attr('stroke-width',isFYEnd?2:0);
-    // Show "Jan '25" style label — show year only at first of each quarter or when year changes
-    const showYear=yr&&(i%3===0||(i>0&&(((startM+i)%12)<((startM+i-1)%12))));
-    const label=MONTHS[mIdx]+(showYear?" '"+String(yr).slice(2):'');
-    svg.append('text').attr('x',x+cw/2).attr('y',H-2).attr('text-anchor','middle').attr('font-size',8.5)
-      .attr('font-weight',isFYEnd?700:400).attr('fill',isFYEnd?'#9B2D22':'#333').text(label);
-  }
-  const DAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
-  for(let q=0;q<4;q++){
-    const x=mL+(q*3+1.5)*cw;
-    const mIdxEnd=(startM+q*3+2)%12;
-    const yrEnd=startCalYear?(startCalYear+(mIdxEnd<startM?1:0)):null;
-    const dateStr=MONTHS[mIdxEnd]+' '+DAYS[mIdxEnd]+(yrEnd?", '"+String(yrEnd).slice(2):'');
-    svg.append('text').attr('x',x).attr('y',mT-4).attr('text-anchor','middle').attr('font-size',8.5).attr('font-weight',700).attr('fill',q===3?'#9B2D22':'#555').attr('letter-spacing','.02em').text('Q'+(q+1)+' · ends '+dateStr);
-  }
 }
 /* Mock stock data for the example dataset — frozen as of Apple's FY2025 end (Sep 26, 2025). */
 const MOCK_STOCK={asOf:'Sep 26, 2025',price:255.46,trailingPE:33.8,forwardPE:30.2,
@@ -1448,8 +1450,28 @@ function renderCompany(){
       h+='</div></div>';
     }
     if(p.fiscalYearEnd){
-      const fyeName=MONTH_NAMES[Math.max(0,Math.min(11,num(p.fiscalYearEnd)-1))];
-      h+='<div class="mkt-card" style="overflow:hidden"><div class="mkt-card-label">Fiscal calendar · ends '+esc(fyeName)+'</div><svg id="fiscalCalChart" viewBox="0 0 900 86" preserveAspectRatio="xMidYMid meet" style="width:100%;max-height:86px;display:block;margin-top:6px"></svg></div>';
+      const fyM=Math.max(1,Math.min(12,num(p.fiscalYearEnd)));
+      const fyeName=MONTH_NAMES[fyM-1];
+      const SHORT=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const DAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
+      const yearMatch=(model.period||'').match(/\d{4}/);
+      const fyYear=yearMatch?parseInt(yearMatch[0]):null;
+      const startM=fyM%12;
+      const startCalYear=fyYear?(fyM===12?fyYear:fyYear-1):null;
+      const calRows=[];
+      for(let q=0;q<4;q++){
+        const mIdx=(startM+q*3+2)%12;
+        const yr=startCalYear?(startCalYear+(mIdx<startM?1:0)):null;
+        calRows.push([q===3?'FY ends':'Q'+(q+1)+' ends',SHORT[mIdx]+' '+DAYS[mIdx]+(yr?", '"+String(yr).slice(2):''),q===3]);
+      }
+      if(fyYear){
+        const fileIdx=(fyM-1+2)%12;
+        const fileYear=fyYear+((fyM-1+2)>11?1:0);
+        calRows.push(['Last 10-K filed','~'+SHORT[fileIdx]+" '"+String(fileYear).slice(2)+' (est.)',false]);
+      }
+      h+='<div class="mkt-card"><div class="mkt-card-label">Fiscal calendar · ends '+esc(fyeName)+'</div>';
+      h+='<div style="margin-top:8px;display:grid;gap:4px">'+calRows.map(r=>
+        '<div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px;line-height:1.45"><span style="color:var(--ink-2)">'+r[0]+'</span><span style="font-weight:'+(r[2]?'700':'600')+';font-variant-numeric:tabular-nums;'+(r[2]?'color:#9B2D22':'')+'">'+r[1]+'</span></div>').join('')+'</div></div>';
     }
     h+='</div>';
   }
@@ -1508,7 +1530,6 @@ function renderCompany(){
   el.innerHTML=h;
   if(series.length>=2)drawFiveYear(series);
   drawPositioning();drawPie();
-  if(p.fiscalYearEnd&&$('#fiscalCalChart'))drawFiscalCalendar(num(p.fiscalYearEnd),'fiscalCalChart');
   if(p.ticker&&BACKEND_URL)refreshStockCard(p.ticker);
 }
 function renderOverview(){
@@ -1662,7 +1683,7 @@ function buildExport(){const m=model;return {company:m.company,period:m.period,p
   pnl:{revenue:m.pnl.revenue,costOfRevenue:m.pnl.costOfRevenue,operatingExpenses:m.pnl.operatingExpenses,nonOperating:m.pnl.nonOperating,incomeTax:m.pnl.incomeTax,netIncome:m.pnl.reportedNetIncome},
   pnlPrior:m.prior,segments:m.segments,geographies:m.geographies,productCategories:m.productCategories,channelRevenue:m.channelRevenue,
   balanceSheet:{currentAssets:m.bs.currentAssets,nonCurrentAssets:m.bs.nonCurrentAssets,currentLiabilities:m.bs.currentLiabilities,nonCurrentLiabilities:m.bs.nonCurrentLiabilities,equity:m.bs.equity},
-  balanceSheetPrior:m.bsPrior,
+  balanceSheetPrior:m.bsPrior,balanceSheetPriorDetail:m.bsPriorDetail,balanceSheetNotes:m.bsNotes,
   cashFlow:{operating:m.cf.operating,investing:m.cf.investing,financing:m.cf.financing,fxEffect:m.cf.fxEffect,beginningCash:m.cf.beginningCash,endingCash:m.cf.endingCash,netChange:m.cf.reportedNetChange},
   cashFlowPrior:m.cfPrior,cashFlowNotes:m.cfNotes,dimensionalCash:m.dimCash,profile:m.profile,narrative:m.narrative};}
 $('#exportBtn').addEventListener('click',()=>{if(!hasData()){setStatus('Nothing to export yet — load a filing first.','err');return;}dl(new Blob([JSON.stringify(buildExport(),null,2)],{type:'application/json'}),safeName()+'_data.json');});
