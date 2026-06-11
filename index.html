@@ -443,8 +443,8 @@ const SYS=[
 '- profile.marketShareBreakdown = approximate market share percent for the company and its top competitors in its core market (include the company itself; 3-6 entries). The viewer adds an "All other" remainder automatically, so they need not sum to 100.',
 '- profile.marketShareMarkets = OPTIONAL but encouraged: 2-6 share views across the distinct markets/product groups the company competes in, each {market: short label, entries:[{name,share}]}. Labels may be product groups ("Tablets — global units") or region-specific views ("Smartphones — Greater China"). Include the company in every view. Approximate percents from general knowledge are fine. [] if you cannot estimate.',
 '- profile.fiscalYearEnd = month number 1-12 when the fiscal year ends (e.g. 9 for September, 12 for December).',
-'- profile.marketCap = approximate market cap as a short string (e.g. "~$3.4T", "~$280B"). Use general knowledge; mark as approximate.',
-'- profile.sharesOutstanding = shares outstanding as a short formatted string (e.g. "15.4B", "~2.3B"). Use the filing or general knowledge.',
+'- profile.marketCap = approximate market cap as a short string (e.g. "~$3.4T"). Your knowledge may be stale — the viewer recomputes live from price x shares; this is only a fallback.',
+'- profile.sharesOutstanding = REQUIRED: shares outstanding as a short string (e.g. "15.4B"). Every 10-K/10-Q states this on its COVER PAGE ("...shares of common stock outstanding as of..."); read it from there. Sum share classes if multiple.',
 '- profile.industryPE = approximate trailing P/E for the company\'s industry peer group (numeric, e.g. 25). Use general knowledge. 0 if unknown.',
 '- profile.industryForwardPE = approximate forward P/E for the industry peer group (numeric). 0 if unknown.',
 '- profile.forwardPE = approximate forward P/E for THIS company (numeric), from general knowledge of consensus expectations. Used only as a labeled fallback when live market data is unavailable. 0 if unknown.',
@@ -515,7 +515,12 @@ function fetchFiling(){
 }
 async function fetchViaBackend(co,rt,period){
   const btn=$('#fetchBtn'),old=btn.textContent;btn.disabled=true;btn.textContent='Fetching from EDGAR…';
-  setStatus('Fetching the filing from SEC EDGAR via your backend — this can take a moment…','info');
+  const t0=Date.now();
+  const tick=setInterval(()=>{
+    const s=Math.round((Date.now()-t0)/1000);
+    setStatus('Fetching '+co.toUpperCase()+' from EDGAR and structuring with Claude — '+s+'s elapsed. First fetch of a filing typically takes 30–60s; repeats are cached and load instantly.','info');
+  },1000);
+  setStatus('Fetching the filing from SEC EDGAR — structuring runs as two parallel Claude passes…','info');
   try{
     const u=BACKEND_URL.replace(/\/$/,'')+'/fetch-filing?ticker='+encodeURIComponent(co)+'&form='+encodeURIComponent(rt)+'&period='+encodeURIComponent(period);
     const r=await fetch(u);const data=await r.json();
@@ -526,7 +531,7 @@ async function fetchViaBackend(co,rt,period){
     if(!hasData()){setStatus('No usable figures returned for that company/period — try a ticker or a specific period.','err');return;}
     setStatus('Loaded '+model.company+(model.period?' · '+model.period:'')+' from EDGAR. Figures are extracted from the filing — verify against the source.','ok');
   }catch(e){setStatus('Fetch failed: '+e.message+'. Check the backend logs, or try a different ticker/period.','err');}
-  finally{btn.disabled=false;btn.textContent=old;}
+  finally{clearInterval(tick);btn.disabled=false;btn.textContent=old;}
 }
 function loadExample(){
   adopt({company:'Apple Inc.',period:'FY2025 · illustrative',priorPeriod:'FY2024',currency:'USD',units:'millions',
@@ -1155,10 +1160,16 @@ async function refreshStockCard(ticker){
     priceEl.textContent='—';
     if(subEl)subEl.textContent='Live data unavailable';
   }
+  const sh=parseCapStr((model.profile||{}).sharesOutstanding);
+  // Live market cap = price x shares (Claude's marketCap string is stale knowledge)
+  if(parsed&&parsed.currentPrice&&sh){
+    const capEl=$('#mktCapVal'),capSub=$('#mktCapSub');
+    if(capEl)capEl.textContent=fmtAbs(parsed.currentPrice*sh);
+    if(capSub)capSub.textContent='Live: price × shares outstanding';
+  }
   const peEl=$('#peVal'),fwdEl=$('#fwdPeVal');
   let tpe=parsed&&parsed.trailingPE||null;
   if(!tpe&&parsed&&parsed.currentPrice){
-    const sh=parseCapStr((model.profile||{}).sharesOutstanding);
     const ni=model.pnl.netIncome*(UNIT_MULT[model.units]||1);
     if(sh&&ni>0)tpe=parsed.currentPrice*sh/ni;
   }
@@ -1182,9 +1193,19 @@ function fmtAbs(x){if(x==null||isNaN(x))return '—';const neg=x<0;x=Math.abs(x)
   if(x>=1e12)s=(x/1e12).toFixed(x>=1e13?0:1)+'T';else if(x>=1e9)s=(x/1e9).toFixed(x>=1e10?0:1)+'B';
   else if(x>=1e6)s=(x/1e6).toFixed(x>=1e7?0:1)+'M';else if(x>=1e3)s=(x/1e3).toFixed(0)+'K';else s=x.toFixed(0);
   return (neg?'-':'')+'$'+s;}
-function parseCapStr(s){if(!s)return null;const m=String(s).match(/([\d.]+)\s*([TtBbMm])?/);if(!m)return null;
-  const v=parseFloat(m[1]);if(isNaN(v))return null;const sfx=(m[2]||'').toUpperCase();
-  return v*(sfx==='T'?1e12:sfx==='B'?1e9:sfx==='M'?1e6:1);}
+function parseCapStr(s){
+  if(!s)return null;
+  const t=String(s).replace(/,/g,'');
+  const m=t.match(/([\d.]+)\s*(trillion|tn|t|billion|bn|b|million|mm|m)?/i);
+  if(!m)return null;
+  const v=parseFloat(m[1]);if(isNaN(v)||v<=0)return null;
+  const sfx=(m[2]||'').toLowerCase();
+  if(sfx.startsWith('t'))return v*1e12;
+  if(sfx.startsWith('b'))return v*1e9;
+  if(sfx.startsWith('m'))return v*1e6;
+  // bare number: a large value is an absolute count; a small bare value is ambiguous
+  return v>1e6?v:null;
+}
 function cagrOf(series,key){const pts=(series||[]).filter(d=>num(d[key])>0);if(pts.length<2)return null;
   const first=num(pts[0][key]),last=num(pts[pts.length-1][key]);if(first<=0)return null;
   return (Math.pow(last/first,1/(pts.length-1))-1)*100;}
@@ -1274,13 +1295,11 @@ function renderCompare(){
     h+='<div class="ov-card findings" style="margin-top:16px"><h4><span class="pin" style="background:#00A3E0"></span>Margins</h4>';
     h+='<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:6px">Bar = '+esc(A.name)+' · marker = '+esc(B.name)+'</div>';
     h+='<svg class="viz" id="compMargins" viewBox="0 0 1100 230" preserveAspectRatio="xMidYMid meet" style="max-height:230px"></svg></div>';
-    // valuation multiples
-    const psA=(A.marketCap&&A.rev>0)?A.marketCap/A.rev:null;
-    const psB=(B.marketCap&&B.rev>0)?B.marketCap/B.rev:null;
+    // valuation multiples (P/S cells update live in refreshCompPe)
     h+='<div class="mkt-row">';
     h+='<div class="mkt-card"><div class="mkt-card-label">P/E (TTM)</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">'+compStatCell(A.ticker||'Base','<span id="compPeA">…</span>',COMP_A_DARK)+compStatCell(B.ticker||'Comp','<span id="compPeB">…</span>',COMP_B)+'</div>'+(A.industryPE?'<div class="mkt-card-sub" style="margin-top:6px">Industry ~'+A.industryPE.toFixed(1)+'x</div>':'')+'</div>';
     h+='<div class="mkt-card"><div class="mkt-card-label">Forward P/E</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">'+compStatCell(A.ticker||'Base','<span id="compFwdA">…</span>',COMP_A_DARK)+compStatCell(B.ticker||'Comp','<span id="compFwdB">…</span>',COMP_B)+'</div>'+(A.industryFwdPE?'<div class="mkt-card-sub" style="margin-top:6px">Industry ~'+A.industryFwdPE.toFixed(1)+'x</div>':'')+'</div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Price / Sales</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">'+compStatCell(A.ticker||'Base',psA?psA.toFixed(1)+'x':'—',COMP_A_DARK)+compStatCell(B.ticker||'Comp',psB?psB.toFixed(1)+'x':'—',COMP_B)+'</div><div class="mkt-card-sub" style="margin-top:6px">Market cap ÷ revenue (approx.)</div></div>';
+    h+='<div class="mkt-card"><div class="mkt-card-label">Price / Sales</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">'+compStatCell(A.ticker||'Base','<span id="compPsA">…</span>',COMP_A_DARK)+compStatCell(B.ticker||'Comp','<span id="compPsB">…</span>',COMP_B)+'</div><div class="mkt-card-sub" style="margin-top:6px">Market cap ÷ revenue</div></div>';
     h+='<div class="mkt-card"><div class="mkt-card-label">Growth (5-yr CAGR)</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">';
     const cg=v=>v==null?'—':(v>=0?'+':'')+v.toFixed(1)+'%';
     h+=compStatCell('Rev · '+(A.ticker||'Base'),cg(A.revCagr),COMP_A_DARK)+compStatCell('Rev · '+(B.ticker||'Comp'),cg(B.revCagr),COMP_B);
@@ -1401,13 +1420,19 @@ function drawCompRatios(A,B){
   });
 }
 async function refreshCompPe(A,B){
-  const pairs=[[A,'#compPeA','#compFwdA'],[B,'#compPeB','#compFwdB']];
-  for(const[m,peSel,fwdSel]of pairs){
-    const peEl=$(peSel),fwdEl=$(fwdSel);
-    if(!m.ticker){if(peEl)peEl.textContent='—';if(fwdEl)fwdEl.textContent='—';continue;}
+  const pairs=[[A,'#compPeA','#compFwdA','#compPsA'],[B,'#compPeB','#compFwdB','#compPsB']];
+  for(const[m,peSel,fwdSel,psSel]of pairs){
+    const peEl=$(peSel),fwdEl=$(fwdSel),psEl=$(psSel);
+    const psFallback=(m.marketCap&&m.rev>0)?m.marketCap/m.rev:null;
+    if(!m.ticker){
+      if(peEl)peEl.textContent='—';if(fwdEl)fwdEl.textContent='—';
+      if(psEl)psEl.textContent=psFallback?psFallback.toFixed(1)+'x':'—';
+      continue;
+    }
     if(state.mockStock&&MOCK_PE[m.ticker]){
       if(peEl)peEl.textContent=MOCK_PE[m.ticker].t.toFixed(1)+'x';
       if(fwdEl)fwdEl.textContent=MOCK_PE[m.ticker].f.toFixed(1)+'x';
+      if(psEl)psEl.textContent=psFallback?psFallback.toFixed(1)+'x':'—';
       continue;
     }
     const parsed=parseYahooChart(await loadStockData(m.ticker,'1y'));
@@ -1418,6 +1443,10 @@ async function refreshCompPe(A,B){
       let fpe=parsed&&parsed.forwardPE||null,fEst=false;
       if(!fpe&&m.fwdPeEst){fpe=m.fwdPeEst;fEst=true;}
       fwdEl.innerHTML=fpe?(fpe.toFixed(1)+'x'+(fEst?' <span style="font-size:10px;font-weight:400;color:var(--ink-2)">est.</span>':'')):'—';
+    }
+    if(psEl){
+      let ps=(parsed&&parsed.currentPrice&&m.shares&&m.rev>0)?(parsed.currentPrice*m.shares/m.rev):psFallback;
+      psEl.textContent=ps?ps.toFixed(1)+'x':'—';
     }
   }
 }
@@ -1440,7 +1469,7 @@ function renderCompany(){
   const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
   if(p.marketCap||p.ticker||p.sharesOutstanding||p.fiscalYearEnd){
     h+='<div class="mkt-row">';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Market cap</div><div class="mkt-card-val">'+esc(p.marketCap||'—')+'</div><div class="mkt-card-sub">Approx., from filing context</div></div>';
+    h+='<div class="mkt-card"><div class="mkt-card-label">Market cap</div><div class="mkt-card-val" id="mktCapVal">'+esc(p.marketCap||'—')+'</div><div class="mkt-card-sub" id="mktCapSub">Approx., from filing context</div></div>';
     if(p.ticker){
       h+='<div class="mkt-card"><div class="mkt-card-label">Stock price <span style="font-weight:400;font-size:11px;opacity:.65">('+esc(p.ticker)+')</span></div>';
       h+='<div class="mkt-card-val" id="stockPriceVal">…</div><div class="mkt-card-sub" id="stockPriceSub">&nbsp;</div>';
