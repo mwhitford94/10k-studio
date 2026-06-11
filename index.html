@@ -125,6 +125,14 @@
   .vtbtn{background:none;border:none;padding:5px 11px;font-size:12px;font-weight:600;color:var(--ink-2);cursor:pointer;font-family:inherit;white-space:nowrap}
   .vtbtn:hover{background:#f5f5f0;color:var(--ink)}
   .vtbtn.active{background:var(--dl-green);color:#fff}
+  .mkt-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;margin-top:16px}
+  .comp-row{display:grid;grid-template-columns:1fr 2fr;gap:16px;margin-top:16px}
+  @media(max-width:900px){.comp-row{grid-template-columns:1fr}}
+  .mkt-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}
+  .mkt-card::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:100%;background:var(--dl-blue);opacity:.7}
+  .mkt-card-label{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:600}
+  .mkt-card-val{font-size:22px;font-weight:700;margin:4px 0 2px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .mkt-card-sub{font-size:12px;color:var(--ink-2)}
 </style>
 </head>
 <body>
@@ -159,6 +167,7 @@
     <button data-tab="pnl">P&amp;L</button>
     <button data-tab="bs">Balance sheet</button>
     <button data-tab="cf">Cash flow</button>
+    <button data-tab="compare">Compare</button>
   </nav>
 </header>
 <div class="drawer collapsed" id="drawer">
@@ -222,6 +231,20 @@
     <div class="chartcard"><svg class="viz" id="bsChart" viewBox="0 0 1160 600" preserveAspectRatio="xMidYMid meet"></svg></div>
     <div class="legend">
       <span><i style="background:#86BC25"></i>Assets</span><span><i style="background:#C0392B"></i>Liabilities</span><span><i style="background:#00A3E0"></i>Equity</span>
+      <span style="margin-left:12px;font-size:11px;color:#999">Click any tile to compare vs. prior period</span>
+    </div>
+    <div id="bsDetailPanel" style="display:none;margin-top:16px">
+      <div class="chartcard" style="padding:18px 22px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
+          <div>
+            <span id="bsDetailTitle" style="font-size:15px;font-weight:700"></span>
+            <span id="bsDetailPeriod" style="font-size:12px;color:var(--ink-2);margin-left:10px"></span>
+          </div>
+          <button onclick="hideBsDetail()" style="background:none;border:1px solid var(--line);border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--ink-2);font-family:inherit">✕ Close</button>
+        </div>
+        <svg id="bsDetailChart" viewBox="0 0 700 170" preserveAspectRatio="xMidYMid meet" style="width:100%;max-height:170px;display:block"></svg>
+        <div id="bsDetailMsg" style="font-size:12.5px;color:var(--ink-2);margin-top:10px"></div>
+      </div>
     </div>
   </section>
   <section class="tabpanel" data-panel="cf">
@@ -240,6 +263,7 @@
       <span><i style="background:#86BC25"></i>Cash in</span><span><i style="background:#C0392B"></i>Cash out</span><span><i style="background:#5b5b5b"></i>Activity subtotal</span><span><i style="background:#4E7D1C"></i>Net change</span>
     </div>
   </section>
+  <section class="tabpanel" data-panel="compare" id="comparePanel"></section>
   <div class="foot">All views are derived from the figures in the drawer, so they always balance. Built for working analysis — verify against the audited filing before relying on it.</div>
 </main>
 <script>
@@ -248,7 +272,7 @@ const ASSET_PAL=['#86BC25','#9BC93F','#6E9C1E','#B7E320','#5E8718','#A4D34D','#7
 const LIAB_PAL=['#C0392B','#D6604D','#9B2D22','#E08070','#E8A317','#B34A3C','#CF6A3A'];
 const EQ_PAL=['#00A3E0','#0E7BAA','#3FC3EC','#005587','#62C4E8','#A0DCFF'];
 const UNIT_MULT={billions:1e9,millions:1e6,thousands:1e3,absolute:1};
-const STR_KEYS=new Set(['company','period','priorPeriod','units','currency','description','sector','industry','headquarters','founded','employees','ticker','exchange','businessModel','segmentation','marketPosition','marketShare','marketCap','year']);
+const STR_KEYS=new Set(['company','period','priorPeriod','units','currency','description','sector','industry','headquarters','founded','employees','ticker','exchange','businessModel','segmentation','marketPosition','marketShare','marketCap','sharesOutstanding','year']);
 const model={
   company:'',period:'',priorPeriod:'',currency:'USD',units:'millions',
   pnl:{revenue:0,costOfRevenue:0,operatingExpenses:[],nonOperating:[],incomeTax:0,reportedNetIncome:null},
@@ -257,13 +281,14 @@ const model={
   filingUrl:'',
   bs:{currentAssets:[],nonCurrentAssets:[],currentLiabilities:[],nonCurrentLiabilities:[],equity:[]},
   bsPrior:{totalAssets:0,totalLiabilities:0,totalEquity:0,accountsReceivable:0,accountsPayable:0},
+  bsPriorDetail:{currentAssets:[],nonCurrentAssets:[],currentLiabilities:[],nonCurrentLiabilities:[],equity:[]},
   cf:{operating:[],investing:[],financing:[],fxEffect:0,beginningCash:0,endingCash:0,reportedNetChange:null},
   cfPrior:{netChange:0},
   dimCash:{metric:'',bySegment:[],byGeography:[]},
   profile:null,
   narrative:null
 };
-const state={tab:'company',pnlMode:'consolidated',cfMode:'consolidated',viewMode:'ttm'};
+const state={tab:'company',pnlMode:'consolidated',cfMode:'consolidated',viewMode:'ttm',stockRange:'1y'};
 /* Leave '' to run as-is (paste / import). When you deploy as a real site,
    set this to your serverless function base, e.g. '/api' — that turns the
    "Fetch & structure" button into a live SEC EDGAR pull. */
@@ -331,6 +356,9 @@ function adopt(p){
     currentLiabilities:mapLI(B.currentLiabilities),nonCurrentLiabilities:mapLI(B.nonCurrentLiabilities),equity:mapLI(B.equity)};
   const bp=p.balanceSheetPrior||{};
   model.bsPrior={totalAssets:num(bp.totalAssets),totalLiabilities:num(bp.totalLiabilities),totalEquity:num(bp.totalEquity),accountsReceivable:num(bp.accountsReceivable),accountsPayable:num(bp.accountsPayable)};
+  const bpd=p.balanceSheetPriorDetail||{};
+  model.bsPriorDetail={currentAssets:mapLI(bpd.currentAssets),nonCurrentAssets:mapLI(bpd.nonCurrentAssets),
+    currentLiabilities:mapLI(bpd.currentLiabilities),nonCurrentLiabilities:mapLI(bpd.nonCurrentLiabilities),equity:mapLI(bpd.equity)};
   const C=p.cashFlow||{};
   model.cf={operating:(C.operating||[]).map(x=>({name:x.name||'Operating',value:num(x.value)})),
     investing:(C.investing||[]).map(x=>({name:x.name||'Investing',value:num(x.value)})),
@@ -347,7 +375,7 @@ function adopt(p){
       channels:toNamed(pf.channels),competitors:toNamed(pf.competitors),differentiation:toNamed(pf.differentiation),
       positioning:(pf.positioning||[]).map(x=>({name:x.name||'',cost:num(x.cost),quality:num(x.quality)})).filter(x=>x.name),
       marketShareBreakdown:(pf.marketShareBreakdown||[]).map(x=>({name:x.name||'',share:num(x.share)})).filter(x=>x.name),
-      marketCap:pf.marketCap||'',fiscalYearEnd:num(pf.fiscalYearEnd)||0,
+      marketCap:pf.marketCap||'',sharesOutstanding:pf.sharesOutstanding||'',fiscalYearEnd:num(pf.fiscalYearEnd)||0,industryPE:num(pf.industryPE)||0,industryForwardPE:num(pf.industryForwardPE)||0,
       fiveYearRevenue:(pf.fiveYearRevenue||[]).map(x=>({year:String(x.year||''),revenue:num(x.revenue),netIncome:x.netIncome!=null?num(x.netIncome):null}))};
   } else model.profile=null;
   model.filingUrl=p.filingUrl||'';
@@ -364,10 +392,11 @@ const SYS=[
 '"channelRevenue":[{"name":"","revenue":0}],',
 '"balanceSheet":{"currentAssets":[{"name":"","value":0}],"nonCurrentAssets":[{"name":"","value":0}],"currentLiabilities":[{"name":"","value":0}],"nonCurrentLiabilities":[{"name":"","value":0}],"equity":[{"name":"","value":0}]},',
 '"balanceSheetPrior":{"totalAssets":0,"totalLiabilities":0,"totalEquity":0,"accountsReceivable":0,"accountsPayable":0},',
+'"balanceSheetPriorDetail":{"currentAssets":[{"name":"","value":0}],"nonCurrentAssets":[{"name":"","value":0}],"currentLiabilities":[{"name":"","value":0}],"nonCurrentLiabilities":[{"name":"","value":0}],"equity":[{"name":"","value":0}]},',
 '"cashFlow":{"operating":[{"name":"","value":0}],"investing":[{"name":"","value":0}],"financing":[{"name":"","value":0}],"fxEffect":0,"beginningCash":0,"endingCash":0,"netChange":0},',
 '"cashFlowPrior":{"netChange":0},',
 '"dimensionalCash":{"metric":"","bySegment":[{"name":"","value":0}],"byGeography":[{"name":"","value":0}]},',
-'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","marketCap":"","fiscalYearEnd":0,"positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0,"netIncome":0}]},',
+'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","marketCap":"","sharesOutstanding":"","fiscalYearEnd":0,"industryPE":0,"industryForwardPE":0,"positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0,"netIncome":0}]},',
 '"narrative":{"headline":"","summary":"","findings":[""],"outlook":[""],"risks":[""],"capitalAllocation":[""]}}',
 'Rules:',
 '- period = most recent fiscal year; priorPeriod = the year before. Use the most recent year for all current figures.',
@@ -375,6 +404,7 @@ const SYS=[
 '- pnl.costOfRevenue and operatingExpenses POSITIVE; operatingExpenses are line items between gross profit and operating income (use filing labels).',
 '- pnl.nonOperating SIGNED (income +, expense -). incomeTax + provision, - benefit. netIncome reported.',
 '- balanceSheet line items POSITIVE, split into the four groups + equity, using the filing line labels (include Accounts receivable and Accounts payable by those names).',
+'- balanceSheetPriorDetail: same structure as balanceSheet but for the prior comparable period. Match line names to balanceSheet exactly where possible. Fill with empty arrays if prior BS line items are not available.',
 '- cashFlow items SIGNED (inflow +, outflow -), grouped operating/investing/financing; include D&A, working capital and main drivers; netChange = reported net increase/(decrease) in cash.',
 '- dimensionalCash: ONLY if the filing discloses a cash metric by segment or geography (commonly capital expenditures). Set metric to its name; else metric "" and arrays [].',
 '- profile: from Item 1 Business and the competition discussion. description = 2-3 sentences on what the company does. businessModel = how it makes money. segmentation = how it organizes/reports its business. channels = go-to-market channels. competitors = up to 6 named rivals. differentiation = 3-5 short points on its edge/moat. marketPosition = leader/challenger/niche + one line. marketShare = a short estimate string (you may use general knowledge; frame as approximate). fiveYearRevenue = the last 5 fiscal years of total revenue in the same units (use the filing if present, otherwise your best knowledge), each {year,revenue}. Fill founded/headquarters/employees/ticker/exchange/sector/industry where known.',
@@ -382,6 +412,9 @@ const SYS=[
 '- profile.marketShareBreakdown = approximate market share percent for the company and its top competitors in its core market (include the company itself; 3-6 entries). The viewer adds an "All other" remainder automatically, so they need not sum to 100.',
 '- profile.fiscalYearEnd = month number 1-12 when the fiscal year ends (e.g. 9 for September, 12 for December).',
 '- profile.marketCap = approximate market cap as a short string (e.g. "~$3.4T", "~$280B"). Use general knowledge; mark as approximate.',
+'- profile.sharesOutstanding = shares outstanding as a short formatted string (e.g. "15.4B", "~2.3B"). Use the filing or general knowledge.',
+'- profile.industryPE = approximate trailing P/E for the company\'s industry peer group (numeric, e.g. 25). Use general knowledge. 0 if unknown.',
+'- profile.industryForwardPE = approximate forward P/E for the industry peer group (numeric). 0 if unknown.',
 '- fiveYearRevenue items: include netIncome = reported net income for that year in the same units (0 if unknown).',
 '- narrative: YOUR OWN concise analysis in your own words (never copy sentences from the filing). headline ~10 words; summary 2-3 sentences; findings 4-6 short points; outlook 2-4; risks 2-4; capitalAllocation 2-3 or [].',
 '- productCategories: ONLY if the filing explicitly discloses revenue by product line/category (e.g. iPhone/Mac/iPad/Services for Apple; Cloud/Productivity/More Personal Computing for Microsoft). Do NOT duplicate what is already in segments or geographies. Return [] if not separately disclosed.',
@@ -415,6 +448,8 @@ async function runStructuring(userContent,useSearch,btn){
     let parsed;try{parsed=JSON.parse(t);}catch(pe){throw new Error('the response was not valid JSON'+(data.stop_reason==='max_tokens'?' (hit the length limit)':''));}
     adopt(parsed);
     state.pnlMode='consolidated';state.cfMode='consolidated';
+    const _formType=$('#reportType').value.replace('-other','');
+    state.viewMode=_formType==='10-Q'?'quarterly':'ttm';syncViewToggle();
     buildEditor();renderAll();
     if(!hasData()){setStatus('No usable figures came back — the filing may not have been found. Try the ticker (e.g. GOOGL), add a specific period, or paste the statements below.','err');return;}
     setStatus('Structured '+model.company+(model.period?' · '+model.period:'')+'. Review the figures in the drawer, then explore each tab.'+(useSearch?' Retrieved figures are best-effort — verify against the filing.':''),'ok');
@@ -460,27 +495,34 @@ async function fetchViaBackend(co,rt,period){
   finally{btn.disabled=false;btn.textContent=old;}
 }
 function loadExample(){
-  adopt({company:'Apple Inc.',period:'FY2024 · illustrative',priorPeriod:'FY2023',currency:'USD',units:'millions',
-    pnl:{revenue:391035,costOfRevenue:210352,operatingExpenses:[{name:'Research & development',value:31370},{name:'Selling, general & admin.',value:26097}],nonOperating:[{name:'Other income / (expense), net',value:269}],incomeTax:29749,netIncome:93736},
-    pnlPrior:{revenue:383285,costOfRevenue:214137,operatingIncome:114301,netIncome:96995},
-    segments:[{name:'Americas',revenue:167045,operatingIncome:70000},{name:'Europe',revenue:101328,operatingIncome:42000},{name:'Greater China',revenue:66952,operatingIncome:28000},{name:'Japan',revenue:25052,operatingIncome:12500},{name:'Rest of Asia Pacific',revenue:30658,operatingIncome:13000}],
-    geographies:[{name:'Americas',revenue:167045},{name:'Europe',revenue:101328},{name:'Greater China',revenue:66952},{name:'Japan',revenue:25052},{name:'Rest of Asia Pacific',revenue:30658}],
+  adopt({company:'Apple Inc.',period:'FY2025 · illustrative',priorPeriod:'FY2024',currency:'USD',units:'millions',
+    pnl:{revenue:416161,costOfRevenue:220960,operatingExpenses:[{name:'Research & development',value:34550},{name:'Selling, general & admin.',value:27601}],nonOperating:[{name:'Other income / (expense), net',value:-321}],incomeTax:20719,netIncome:112010},
+    pnlPrior:{revenue:391035,costOfRevenue:210352,operatingIncome:123216,netIncome:93736},
+    segments:[{name:'Americas',revenue:176500,operatingIncome:73000},{name:'Europe',revenue:112000,operatingIncome:46500},{name:'Greater China',revenue:64500,operatingIncome:26500},{name:'Japan',revenue:28500,operatingIncome:14500},{name:'Rest of Asia Pacific',revenue:34661,operatingIncome:15500}],
+    geographies:[{name:'Americas',revenue:176500},{name:'Europe',revenue:112000},{name:'Greater China',revenue:64500},{name:'Japan',revenue:28500},{name:'Rest of Asia Pacific',revenue:34661}],
+    productCategories:[{name:'iPhone',revenue:209500},{name:'Mac',revenue:34000},{name:'iPad',revenue:28161},{name:'Wearables, Home & Accessories',revenue:36000},{name:'Services',revenue:108500}],
     balanceSheet:{
+      currentAssets:[{name:'Cash & equivalents',value:35934},{name:'Marketable securities',value:18763},{name:'Accounts receivable, net',value:39777},{name:'Vendor non-trade receivables',value:33180},{name:'Inventories',value:5718},{name:'Other current assets',value:14585}],
+      nonCurrentAssets:[{name:'Marketable securities (LT)',value:77723},{name:'Property, plant & equipment, net',value:49834},{name:'Other non-current assets',value:83727}],
+      currentLiabilities:[{name:'Accounts payable',value:69860},{name:'Other current liabilities',value:66387},{name:'Deferred revenue',value:9055},{name:'Commercial paper',value:7979},{name:'Term debt (current)',value:12350}],
+      nonCurrentLiabilities:[{name:'Term debt',value:78328},{name:'Other non-current liabilities',value:41549}],
+      equity:[{name:'Common stock & APIC',value:93568},{name:'Retained earnings / (deficit)',value:-14264},{name:'Accum. other comp. loss',value:-5571}]},
+    balanceSheetPrior:{totalAssets:364980,totalLiabilities:308030,totalEquity:56950,accountsReceivable:33410,accountsPayable:68960},
+    balanceSheetPriorDetail:{
       currentAssets:[{name:'Cash & equivalents',value:29943},{name:'Marketable securities',value:35228},{name:'Accounts receivable, net',value:33410},{name:'Vendor non-trade receivables',value:32833},{name:'Inventories',value:7286},{name:'Other current assets',value:14287}],
       nonCurrentAssets:[{name:'Marketable securities (LT)',value:91479},{name:'Property, plant & equipment, net',value:45680},{name:'Other non-current assets',value:74834}],
       currentLiabilities:[{name:'Accounts payable',value:68960},{name:'Other current liabilities',value:78304},{name:'Deferred revenue',value:8249},{name:'Commercial paper',value:9967},{name:'Term debt (current)',value:10912}],
       nonCurrentLiabilities:[{name:'Term debt',value:85750},{name:'Other non-current liabilities',value:45888}],
       equity:[{name:'Common stock & APIC',value:83276},{name:'Retained earnings / (deficit)',value:-19154},{name:'Accum. other comp. loss',value:-7172}]},
-    balanceSheetPrior:{totalAssets:352583,totalLiabilities:290437,totalEquity:62146,accountsReceivable:29508,accountsPayable:62611},
-    cashFlow:{operating:[{name:'Net income',value:93736},{name:'Depreciation & amortization',value:11445},{name:'Share-based compensation',value:11688},{name:'Working capital & other',value:1385}],
-      investing:[{name:'Capital expenditures',value:-9447},{name:'Marketable securities, net',value:13690},{name:'Other investing',value:-1308}],
-      financing:[{name:'Dividends paid',value:-15234},{name:'Share repurchases',value:-94949},{name:'Net debt repayment',value:-5998},{name:'Taxes / other financing',value:-5803}],
-      fxEffect:0,beginningCash:30737,endingCash:29942,netChange:-795},
-    cashFlowPrior:{netChange:5760},
+    cashFlow:{operating:[{name:'Net income',value:112010},{name:'Depreciation & amortization',value:11698},{name:'Share-based compensation',value:12863},{name:'Working capital & other',value:-25089}],
+      investing:[{name:'Capital expenditures',value:-12715},{name:'Marketable securities, net',value:28963},{name:'Other investing',value:-1053}],
+      financing:[{name:'Dividends paid',value:-15421},{name:'Share repurchases',value:-90711},{name:'Net debt repayment',value:-8700},{name:'Taxes / other financing',value:-5854}],
+      fxEffect:0,beginningCash:29943,endingCash:35934,netChange:5991},
+    cashFlowPrior:{netChange:-795},
     dimensionalCash:{metric:'',bySegment:[],byGeography:[]},
     profile:{description:'Apple designs, manufactures, and markets consumer electronics — iPhone, Mac, iPad, and wearables — and sells a fast-growing portfolio of services including the App Store, advertising, cloud, payments, and subscriptions. Hardware anchors a large, loyal installed base that Apple increasingly monetizes through software and services.',
-      sector:'Technology',industry:'Consumer Electronics & Digital Services',headquarters:'Cupertino, California',founded:'1976',employees:'~164,000',ticker:'AAPL',exchange:'NASDAQ',
-      businessModel:'Premium hardware sold at healthy margins creates a sticky installed base of 2B+ active devices, which Apple monetizes through high-margin, recurring services and ecosystem lock-in.',
+      sector:'Technology',industry:'Consumer Electronics & Digital Services',headquarters:'Cupertino, California',founded:'1976',employees:'~166,000',ticker:'AAPL',exchange:'NASDAQ',
+      businessModel:'Premium hardware sold at healthy margins creates a sticky installed base of 2.35B+ active devices, which Apple monetizes through high-margin, recurring services and ecosystem lock-in.',
       segmentation:'Reports five geographic segments (Americas, Europe, Greater China, Japan, Rest of Asia Pacific) and discloses revenue by product category (iPhone, Mac, iPad, Wearables/Home/Accessories, Services).',
       channels:[{name:'Apple retail & online stores'},{name:'Direct enterprise & education'},{name:'Carriers & wholesalers'},{name:'Authorized resellers'},{name:'App Store / digital storefronts'}],
       competitors:[{name:'Samsung'},{name:'Google / Alphabet'},{name:'Microsoft'},{name:'Huawei'},{name:'Xiaomi'},{name:'Amazon'}],
@@ -488,18 +530,18 @@ function loadExample(){
       marketShare:'~18-20% of global smartphone units (majority of industry profit pool); leading share in tablets and smartwatches.',
       positioning:[{name:'Apple',cost:90,quality:92},{name:'Samsung',cost:66,quality:82},{name:'Google Pixel',cost:60,quality:80},{name:'Xiaomi',cost:34,quality:66},{name:'Huawei',cost:56,quality:78}],
       marketShareBreakdown:[{name:'Apple',share:18},{name:'Samsung',share:19},{name:'Xiaomi',share:12},{name:'Oppo',share:8},{name:'Vivo',share:7}],
-      differentiation:[{name:'Tight hardware–software–services integration and silicon (Apple-designed chips)'},{name:'Brand strength and pricing power at the premium tier'},{name:'2B+ active-device installed base driving recurring services'},{name:'Privacy positioning and ecosystem switching costs'}],
-      marketCap:'~$3.4T',fiscalYearEnd:9,
-      fiveYearRevenue:[{year:'FY2020',revenue:274515,netIncome:57411},{year:'FY2021',revenue:365817,netIncome:94680},{year:'FY2022',revenue:394328,netIncome:99803},{year:'FY2023',revenue:383285,netIncome:96995},{year:'FY2024',revenue:391035,netIncome:93736}]},
-    narrative:{headline:'Record revenue and margins, with net income pressured by a one-time tax charge',
-      summary:'Revenue reached an all-time high as Services growth offset softer hardware demand, and gross margin expanded on a richer mix. Reported net income declined despite higher operating income, driven by a materially larger tax provision tied to a one-time European charge. Cash generation stayed exceptional and was returned to shareholders largely through buybacks and dividends.',
-      findings:['Revenue grew ~2% to ~$391B; Services mix lifted gross margin toward ~46%','Operating income rose ~8% on margin expansion and expense discipline','Net income fell ~3% as the effective tax rate jumped on a one-time charge','Operating cash flow remained robust at ~$118B','Capital returns were aggressive: ~$95B buybacks and ~$15B dividends','Buybacks kept retained earnings negative even as the business compounded'],
-      outlook:['Services and installed-base monetization remain the primary growth lever','A hardware/AI refresh cycle could re-accelerate product revenue','Capital return program likely continues to absorb most free cash flow'],
-      risks:['Demand sensitivity in Greater China and broader geographic concentration','Regulatory pressure on App Store economics and platform fees','FX translation and supply-chain concentration'],
-      capitalAllocation:['~$95B share repurchases','~$15B dividends','Modest net debt reduction']}});
+      differentiation:[{name:'Tight hardware–software–services integration and silicon (Apple-designed chips)'},{name:'Brand strength and pricing power at the premium tier'},{name:'2.35B+ active-device installed base driving recurring services'},{name:'Privacy positioning and ecosystem switching costs'}],
+      marketCap:'~$4.0T',sharesOutstanding:'~14.8B',fiscalYearEnd:9,industryPE:28,industryForwardPE:24,
+      fiveYearRevenue:[{year:'FY2021',revenue:365817,netIncome:94680},{year:'FY2022',revenue:394328,netIncome:99803},{year:'FY2023',revenue:383285,netIncome:96995},{year:'FY2024',revenue:391035,netIncome:93736},{year:'FY2025',revenue:416161,netIncome:112010}]},
+    narrative:{headline:'Record revenue and profit as Services momentum offsets a maturing hardware cycle',
+      summary:'Revenue set a new all-time high on iPhone strength and double-digit Services growth, and gross margin held near record levels on a richer mix. Net income rebounded sharply against a prior year that absorbed a one-time European tax charge. Cash generation stayed exceptional and was returned to shareholders largely through buybacks and dividends.',
+      findings:['Revenue grew ~6% to ~$416B; Services crossed a ~$108B annual run rate','Gross margin held near ~47% on Services mix and input-cost discipline','Net income rose ~20%, flattered by the prior-year one-time tax charge','Operating cash flow remained robust at ~$111B','Capital returns stayed aggressive: ~$91B buybacks and ~$15B dividends','Buybacks kept retained earnings negative even as the business compounded'],
+      outlook:['Services and installed-base monetization remain the primary growth lever','AI-driven device refresh could re-accelerate product revenue','Capital return program likely continues to absorb most free cash flow'],
+      risks:['Demand sensitivity in Greater China and broader geographic concentration','Regulatory pressure on App Store economics and platform fees','Tariff and supply-chain concentration exposure'],
+      capitalAllocation:['~$91B share repurchases','~$15B dividends','Modest net debt reduction']}});
   state.pnlMode='consolidated';state.cfMode='consolidated';
   buildEditor();renderAll();$('#src').value='';
-  setStatus('Loaded an illustrative Apple two-year dataset. Consolidated figures track the filings; segment operating income and the narrative are simplified for the demo.','ok');
+  setStatus('Loaded an illustrative Apple FY2025 two-year dataset. Consolidated figures track the filings; some line items and the narrative are simplified for the demo.','ok');
 }
 function resolveFill(cat,segI){
   switch(cat){case 'revenue':return '#005587';case 'profit':return '#86BC25';case 'netincome':return '#4E7D1C';
@@ -581,7 +623,7 @@ function renderPnlModes(){
 }
 function renderPnlKpis(){
   const P=model.pnl,pr=model.prior;
-  const pfx=state.viewMode==='quarterly'?(model.period?model.period+' ':''):'TTM ';
+  const pfx=state.viewMode==='quarterly'?'':'TTM ';
   kpis('#pnlKpis',[
     kpi(pfx+'revenue',fmt(P.revenue),growth(P.revenue,pr.revenue)),
     kpi(pfx+'gross profit',fmt(P.grossProfit),growth(P.grossProfit,pr.grossProfit),P.revenue>0?(P.grossProfit/P.revenue*100).toFixed(1)+'% margin':''),
@@ -624,16 +666,18 @@ function renderTreemap(){
   const g=svg.append('g');
   root.children.forEach(cn=>{
     const col=cn.data.cat==='asset'?'#5E8718':cn.data.cat==='liability'?'#9B2D22':'#005587';
-    g.append('rect').attr('x',cn.x0).attr('y',cn.y0).attr('width',cn.x1-cn.x0).attr('height',cn.y1-cn.y0)
-      .attr('fill','none').attr('stroke',col).attr('stroke-width',1.5).attr('rx',5);
     const catTotal=cn.data.cat==='asset'?b.totalAssets:cn.data.cat==='liability'?b.totalLiabilities:b.totalEquity;
+    g.append('rect').attr('x',cn.x0).attr('y',cn.y0).attr('width',cn.x1-cn.x0).attr('height',cn.y1-cn.y0)
+      .attr('fill','none').attr('stroke',col).attr('stroke-width',1.5).attr('rx',5).style('cursor','pointer')
+      .on('click',()=>showBsItemDetail(cn.data.name,cn.data.cat));
     g.append('text').attr('x',cn.x0+8).attr('y',cn.y0+14).attr('font-size',12).attr('font-weight',700).attr('fill',col)
-      .text(cn.data.name+' · '+fmt(catTotal));
-    (cn.children||[]).forEach(sn=>{if(sn.children)g.append('text').attr('x',sn.x0+5).attr('y',sn.y0+11).attr('font-size',9.5).attr('font-weight',600).attr('fill','#777').text(sn.data.name);});
+      .attr('pointer-events','none').text(cn.data.name+' · '+fmt(catTotal));
+    (cn.children||[]).forEach(sn=>{if(sn.children)g.append('text').attr('x',sn.x0+5).attr('y',sn.y0+11).attr('font-size',9.5).attr('font-weight',600).attr('fill','#777').attr('pointer-events','none').text(sn.data.name);});
   });
-  const leaf=g.selectAll('g.leaf').data(root.leaves()).join('g').attr('transform',d=>'translate('+d.x0+','+d.y0+')');
+  const leaf=g.selectAll('g.leaf').data(root.leaves()).join('g').attr('transform',d=>'translate('+d.x0+','+d.y0+')')
+    .style('cursor','pointer').on('click',(_,d)=>showBsItemDetail(d.data.name,d.data.cat));
   leaf.append('rect').attr('width',d=>Math.max(0,d.x1-d.x0)).attr('height',d=>Math.max(0,d.y1-d.y0)).attr('fill',d=>d.data.fill).attr('rx',3).attr('opacity',.92)
-    .append('title').text(d=>d.data.name+'\n'+fmt(d.value));
+    .append('title').text(d=>d.data.name+'\n'+fmt(d.value)+' — click to compare vs. prior period');
   leaf.each(function(d){const w=d.x1-d.x0,h=d.y1-d.y0;if(w<38||h<20)return;const t=d3.select(this);
     const fs=Math.min(10,Math.max(8,w/14));
     const maxc=Math.floor(w/5.6);
@@ -643,6 +687,66 @@ function renderTreemap(){
     const nameEl=t.append('text').attr('font-size',fs).attr('font-weight',600).attr('fill','#fff');
     lines.forEach((line,i)=>nameEl.append('tspan').attr('x',5).attr('y',12+(i*11)).text(line));
     const valY=12+(lines.length*11);if(valY+9<h)t.append('text').attr('x',5).attr('y',valY).attr('font-size',fs-0.5).attr('fill','rgba(255,255,255,.88)').text(fmt(d.value));});
+}
+function hideBsDetail(){const p=$('#bsDetailPanel');if(p)p.style.display='none';}
+function showBsItemDetail(name,cat){
+  const panel=$('#bsDetailPanel');if(!panel)return;
+  const b=model.bs,bpd=model.bsPriorDetail||{};
+  let currVal=null,priorVal=null;
+  if(name==='Assets'){currVal=Math.abs(b.totalAssets);priorVal=model.bsPrior.totalAssets?Math.abs(model.bsPrior.totalAssets):null;}
+  else if(name==='Liabilities'){currVal=Math.abs(b.totalLiabilities);priorVal=model.bsPrior.totalLiabilities?Math.abs(model.bsPrior.totalLiabilities):null;}
+  else if(name==='Equity'){currVal=Math.abs(b.totalEquity);priorVal=model.bsPrior.totalEquity?Math.abs(model.bsPrior.totalEquity):null;}
+  else{
+    const allCurr=[...b.currentAssets,...b.nonCurrentAssets,...b.currentLiabilities,...b.nonCurrentLiabilities,...b.equity];
+    const ci=allCurr.find(x=>x.name===name);if(ci)currVal=Math.abs(num(ci.value));
+    const allPrior=[...(bpd.currentAssets||[]),...(bpd.nonCurrentAssets||[]),...(bpd.currentLiabilities||[]),...(bpd.nonCurrentLiabilities||[]),...(bpd.equity||[])];
+    const pi=allPrior.find(x=>x.name===name);if(pi)priorVal=Math.abs(num(pi.value));
+  }
+  panel.style.display='';
+  $('#bsDetailTitle').textContent=name;
+  const hasPrior=priorVal!==null&&priorVal>0;
+  $('#bsDetailPeriod').textContent=hasPrior?((model.priorPeriod||'Prior')+' → '+(model.period||'Current')):(model.period||'Current');
+  drawBsItemWaterfall(name,cat,priorVal,currVal);
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function drawBsItemWaterfall(name,cat,priorVal,currVal){
+  const svg=d3.select('#bsDetailChart');svg.selectAll('*').remove();
+  const msg=$('#bsDetailMsg');if(msg)msg.textContent='';
+  const catColor=cat==='asset'?'#5E8718':cat==='liability'?'#9B2D22':'#005587';
+  const hasPrior=priorVal!==null&&priorVal>0;
+  const W=700,H=170,mT=16,mB=28,mL=16,mR=16,chartH=H-mT-mB,chartW=W-mL-mR;
+  svg.attr('viewBox','0 0 '+W+' '+H);
+  if(!hasPrior){
+    const bW=140,bH=Math.min(chartH-4,100),bX=mL+(chartW-bW)/2,bY=mT+chartH-bH;
+    svg.append('rect').attr('x',bX).attr('y',bY).attr('width',bW).attr('height',bH).attr('fill',catColor).attr('rx',4);
+    svg.append('text').attr('x',bX+bW/2).attr('y',bY+bH/2).attr('text-anchor','middle').attr('dominant-baseline','middle').attr('fill','#fff').attr('font-size',15).attr('font-weight',700).text(fmt(currVal||0));
+    svg.append('text').attr('x',bX+bW/2).attr('y',mT+chartH+14).attr('text-anchor','middle').attr('fill','#666').attr('font-size',10.5).text(model.period||'Current');
+    if(msg)msg.textContent='Prior-period line-item detail not available. Structure a fresh filing to enable year-over-year comparison.';
+    return;
+  }
+  const delta=currVal-priorVal;
+  const maxV=Math.max(priorVal,currVal)*1.18;
+  const scY=v=>mT+chartH*(1-v/maxV);const scH=v=>chartH*(v/maxV);
+  const barW=100,totalBarsW=barW*3,totalGap=chartW-totalBarsW,gap=totalGap/4;
+  const bX=[mL+gap,mL+gap*2+barW,mL+gap*3+barW*2];
+  const priorTop=scY(priorVal),currTop=scY(currVal);
+  const dY=delta>=0?scY(currVal):scY(priorVal);const dH=scH(Math.abs(delta));
+  svg.append('line').attr('x1',bX[0]+barW).attr('y1',priorTop).attr('x2',bX[1]).attr('y2',priorTop).attr('stroke','#ccc').attr('stroke-dasharray','3,3').attr('stroke-width',1);
+  svg.append('line').attr('x1',bX[1]+barW).attr('y1',currTop).attr('x2',bX[2]).attr('y2',currTop).attr('stroke','#ccc').attr('stroke-dasharray','3,3').attr('stroke-width',1);
+  const bars=[
+    {x:bX[0],y:scY(priorVal),h:scH(priorVal),val:priorVal,label:model.priorPeriod||'Prior',fill:alpha(catColor,0.55)},
+    {x:bX[1],y:dY,h:Math.max(2,dH),val:delta,label:'Change',fill:delta>=0?'#5E8718':'#9B2D22'},
+    {x:bX[2],y:scY(currVal),h:scH(currVal),val:currVal,label:model.period||'Current',fill:catColor}
+  ];
+  bars.forEach((bar,i)=>{
+    svg.append('rect').attr('x',bar.x).attr('y',bar.y).attr('width',barW).attr('height',bar.h).attr('fill',bar.fill).attr('rx',3);
+    const valStr=i===1?((delta>=0?'+':'')+fmt(delta)):fmt(bar.val);
+    const labelAbove=bar.y>mT+20;
+    svg.append('text').attr('x',bar.x+barW/2).attr('y',labelAbove?bar.y-5:bar.y+bar.h+11).attr('text-anchor','middle').attr('fill',bar.fill==='#fff'?catColor:bar.fill).attr('font-size',11.5).attr('font-weight',700).text(valStr);
+    svg.append('text').attr('x',bar.x+barW/2).attr('y',H-6).attr('text-anchor','middle').attr('fill','#666').attr('font-size',10.5).text(bar.label);
+  });
+  const pct=priorVal>0?((currVal-priorVal)/priorVal*100):null;
+  if(pct!==null&&msg){const sign=pct>=0?'+':'';msg.textContent=name+': '+sign+pct.toFixed(1)+'% vs '+(model.priorPeriod||'prior period')+'.';}
 }
 function renderBsKpis(){
   const b=model.bs,bp=model.bsPrior,P=model.pnl,pr=model.prior;
@@ -782,14 +886,14 @@ function drawFiveYear(series){
     const niMin=Math.min.apply(null,niVals),niMax=Math.max.apply(null,niVals);
     const niPad=(niMax-niMin)*.18||Math.abs(niMax)*.2||1;
     const yNI=d3.scaleLinear().domain([Math.min(0,niMin-niPad),niMax+niPad]).range([H-mB,mT]);
-    yNI.ticks(4).forEach(t=>{svg.append('text').attr('x',W-mR+8).attr('y',yNI(t)).attr('dy','.32em').attr('font-size',10).attr('fill','rgba(192,57,43,.7)').text(fmt(t));});
+    yNI.ticks(4).forEach(t=>{svg.append('text').attr('x',W-mR+8).attr('y',yNI(t)).attr('dy','.32em').attr('font-size',10).attr('fill','rgba(0,85,135,.6)').text(fmt(t));});
     const lineGen=d3.line().x(d=>x(d.year)+x.bandwidth()/2).y(d=>yNI(d.netIncome||0)).curve(d3.curveMonotoneX);
     const niSeries=series.filter(d=>d.netIncome!=null);
-    svg.append('path').datum(niSeries).attr('fill','none').attr('stroke','#C0392B').attr('stroke-width',2.5).attr('stroke-linejoin','round').attr('d',lineGen);
+    svg.append('path').datum(niSeries).attr('fill','none').attr('stroke','#005587').attr('stroke-width',2.5).attr('stroke-linejoin','round').attr('d',lineGen);
     niSeries.filter(d=>d.netIncome!==0).forEach(d=>{
-      svg.append('circle').attr('cx',x(d.year)+x.bandwidth()/2).attr('cy',yNI(d.netIncome)).attr('r',4.5).attr('fill','#C0392B').attr('stroke','#fff').attr('stroke-width',1.5);
-      svg.append('text').attr('x',x(d.year)+x.bandwidth()/2).attr('y',yNI(d.netIncome)-9).attr('text-anchor','middle').attr('font-size',10).attr('fill','#9B2D22').text(fmt(d.netIncome));});
-    svg.append('text').attr('x',W-mR+8).attr('y',mT-10).attr('font-size',10).attr('font-weight',700).attr('fill','#C0392B').text('Net income →');
+      svg.append('circle').attr('cx',x(d.year)+x.bandwidth()/2).attr('cy',yNI(d.netIncome)).attr('r',4.5).attr('fill','#005587').attr('stroke','#fff').attr('stroke-width',1.5);
+      svg.append('text').attr('x',x(d.year)+x.bandwidth()/2).attr('y',yNI(d.netIncome)-9).attr('text-anchor','middle').attr('font-size',10).attr('fill','#005587').text(fmt(d.netIncome));});
+    svg.append('text').attr('x',W-mR+8).attr('y',mT-10).attr('font-size',10).attr('font-weight',700).attr('fill','#005587').text('Net income →');
   }
   svg.append('text').attr('x',mL).attr('y',mT-10).attr('font-size',10).attr('font-weight',700).attr('fill','#3c5e12').text('← Revenue');
 }
@@ -831,12 +935,18 @@ function drawPie(){
     svg.append('text').attr('x',lx+19).attr('y',ly+11).attr('font-size',12.5).attr('font-weight',isSubject(d.name)?700:400).attr('fill','#333').text(d.name+' · '+pct);
     ly+=23;});
 }
-function drawFiscalCalendar(fye){
-  const svg=d3.select('#fiscalCalChart');if(svg.empty())return;svg.selectAll('*').remove();
+function drawFiscalCalendar(fye,targetId){
+  const svgId=targetId||'fiscalCalChart';
+  const svg=d3.select('#'+svgId);if(svg.empty())return;svg.selectAll('*').remove();
   const fy=Math.max(1,Math.min(12,fye||12));
   const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const startM=fy%12;// 0-indexed first month of fiscal year
-  const W=1100,H=90,mL=20,mR=20,mT=22,mB=18;
+  const startM=fy%12; // 0-indexed first month of fiscal year (fy=9→startM=9 means Oct)
+  // Derive approximate year from model.period (e.g. "FY2024" or "FY2024 · illustrative")
+  const yearMatch=(model.period||'').match(/\d{4}/);
+  const fyYear=yearMatch?parseInt(yearMatch[0]):null;
+  // fyYear is the year the fiscal year ENDS. Start year may be fyYear-1 if fy<12.
+  const startCalYear=fyYear?(fy===12?fyYear:fyYear-1):null;
+  const W=900,H=86,mL=8,mR=8,mT=20,mB=16;
   const cw=(W-mL-mR)/12;
   const qCols=['#B7E320','#9BC93F','#6E9C1E','#4E7D1C'];
   for(let i=0;i<12;i++){
@@ -844,18 +954,304 @@ function drawFiscalCalendar(fye){
     const q=Math.floor(i/3);
     const isFYEnd=(mIdx===fy-1);
     const x=mL+i*cw;
-    svg.append('rect').attr('x',x+2).attr('y',mT).attr('width',cw-4).attr('height',H-mT-mB).attr('fill',qCols[q]).attr('rx',4)
-      .attr('stroke',isFYEnd?'#C0392B':'none').attr('stroke-width',isFYEnd?2.5:0);
-    svg.append('text').attr('x',x+cw/2).attr('y',H-4).attr('text-anchor','middle').attr('font-size',10.5)
-      .attr('font-weight',isFYEnd?700:400).attr('fill',isFYEnd?'#9B2D22':'#333').text(MONTHS[mIdx]);
+    // compute calendar year for this month
+    let yr=null;
+    if(startCalYear){const cy=startCalYear+(mIdx<startM?1:0);yr=cy;}
+    svg.append('rect').attr('x',x+1).attr('y',mT).attr('width',cw-2).attr('height',H-mT-mB)
+      .attr('fill',qCols[q]).attr('rx',3)
+      .attr('stroke',isFYEnd?'#C0392B':'none').attr('stroke-width',isFYEnd?2:0);
+    // Show "Jan '25" style label — show year only at first of each quarter or when year changes
+    const showYear=yr&&(i%3===0||(i>0&&(((startM+i)%12)<((startM+i-1)%12))));
+    const label=MONTHS[mIdx]+(showYear?" '"+String(yr).slice(2):'');
+    svg.append('text').attr('x',x+cw/2).attr('y',H-2).attr('text-anchor','middle').attr('font-size',8.5)
+      .attr('font-weight',isFYEnd?700:400).attr('fill',isFYEnd?'#9B2D22':'#333').text(label);
   }
   for(let q=0;q<4;q++){
     const x=mL+(q*3+1.5)*cw;
-    svg.append('text').attr('x',x).attr('y',mT-5).attr('text-anchor','middle').attr('font-size',10).attr('font-weight',700).attr('fill','#555').attr('letter-spacing','.07em').text('Q'+(q+1));
+    svg.append('text').attr('x',x).attr('y',mT-4).attr('text-anchor','middle').attr('font-size',9).attr('font-weight',700).attr('fill','#555').attr('letter-spacing','.05em').text('Q'+(q+1));
   }
-  // subtle legend
-  svg.append('circle').attr('cx',mL+12*cw-30).attr('cy',mT-6).attr('r',4).attr('fill','#C0392B');
-  svg.append('text').attr('x',mL+12*cw-24).attr('y',mT-2).attr('font-size',9.5).attr('fill','#9B2D22').text('FY end');
+}
+let stockCache={};
+async function loadStockData(ticker,range){
+  if(!ticker||!BACKEND_URL)return null;
+  const key=ticker+':'+range;
+  if(stockCache[key])return stockCache[key];
+  try{
+    const u=BACKEND_URL.replace(/\/$/,'')+'/stock-data?ticker='+encodeURIComponent(ticker)+'&range='+range;
+    const r=await fetch(u);if(!r.ok)return null;
+    const d=await r.json();if(d.error)return null;
+    stockCache[key]=d;return d;
+  }catch(e){return null;}
+}
+function parseYahooChart(d){
+  const result=d&&d.chart&&d.chart.result&&d.chart.result[0];if(!result)return null;
+  const prices=(result.indicators&&result.indicators.quote&&result.indicators.quote[0]&&result.indicators.quote[0].close)||[];
+  const meta=result.meta||{};
+  const pe=d&&d._pe||{};
+  return{prices,currentPrice:meta.regularMarketPrice||null,prevClose:meta.chartPreviousClose||null,trailingPE:pe.trailingPE||null,forwardPE:pe.forwardPE||null};
+}
+function drawStockSparkline(el,prices){
+  if(!el||!prices||prices.length<2){if(el)el.innerHTML='';return;}
+  const clean=prices.filter(p=>p!=null);if(clean.length<2){el.innerHTML='';return;}
+  const W=270,H=64;
+  const mn=Math.min.apply(null,clean),mx=Math.max.apply(null,clean);
+  const pad=(mx-mn)*.1||Math.abs(mx)*.05||1;
+  const sx=i=>(i/(clean.length-1))*W;
+  const sy=v=>H-((v-(mn-pad))/(mx-mn+2*pad))*H;
+  const pts=clean.map((p,i)=>sx(i)+','+sy(p)).join(' ');
+  const isUp=clean[clean.length-1]>=clean[0];
+  const col=isUp?'#86BC25':'#C0392B';
+  const areaPath=`M 0,${H} `+clean.map((p,i)=>`L ${sx(i)},${sy(p)}`).join(' ')+` L ${W},${H} Z`;
+  el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;max-height:64px;display:block;margin-top:6px"><path d="'+areaPath+'" fill="'+col+'" opacity=".12"/><polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+async function refreshStockCard(ticker){
+  const data=await loadStockData(ticker,state.stockRange);
+  const parsed=parseYahooChart(data);
+  const priceEl=$('#stockPriceVal'),subEl=$('#stockPriceSub'),sparkEl=$('#stockSparkline');
+  if(!priceEl)return;
+  if(parsed&&parsed.currentPrice){
+    const curr=parsed.currentPrice,prev=parsed.prevClose;
+    const chg=(prev&&prev!==curr)?curr-prev:null;
+    const pct=(prev&&chg!=null)?(chg/prev*100):null;
+    priceEl.textContent='$'+curr.toFixed(2);
+    if(chg!=null&&subEl){const pos=chg>=0;subEl.innerHTML='<span style="color:'+(pos?'#3c7a12':'#b0392b')+';font-weight:600">'+(pos?'▲':'▼')+' $'+Math.abs(chg).toFixed(2)+' ('+Math.abs(pct).toFixed(2)+'%)</span>';}
+    if(sparkEl)drawStockSparkline(sparkEl,parsed.prices);
+  }else{
+    priceEl.textContent='—';
+    if(subEl)subEl.textContent='Live data unavailable';
+  }
+  const peEl=$('#peVal'),fwdEl=$('#fwdPeVal');
+  if(peEl)peEl.textContent=parsed&&parsed.trailingPE?parsed.trailingPE.toFixed(1)+'x':'—';
+  if(fwdEl)fwdEl.textContent=parsed&&parsed.forwardPE?parsed.forwardPE.toFixed(1)+'x':'—';
+}
+function setStockRange(range){
+  state.stockRange=range;
+  $$('.stock-range-chip').forEach(b=>b.classList.toggle('active',b.dataset.range===range));
+  const pf=model.profile;if(pf&&pf.ticker)refreshStockCard(pf.ticker);
+}
+/* ── Compare tab ──────────────────────────────────────────────────────────── */
+let compRaw=null,compMetrics=null,compLoading=false,compError='',compQuery='';
+const compCache={};
+const COMP_A='#86BC25',COMP_A_DARK='#4E7D1C',COMP_B='#005587';
+function fmtAbs(x){if(x==null||isNaN(x))return '—';const neg=x<0;x=Math.abs(x);let s;
+  if(x>=1e12)s=(x/1e12).toFixed(x>=1e13?0:1)+'T';else if(x>=1e9)s=(x/1e9).toFixed(x>=1e10?0:1)+'B';
+  else if(x>=1e6)s=(x/1e6).toFixed(x>=1e7?0:1)+'M';else if(x>=1e3)s=(x/1e3).toFixed(0)+'K';else s=x.toFixed(0);
+  return (neg?'-':'')+'$'+s;}
+function parseCapStr(s){if(!s)return null;const m=String(s).match(/([\d.]+)\s*([TtBbMm])?/);if(!m)return null;
+  const v=parseFloat(m[1]);if(isNaN(v))return null;const sfx=(m[2]||'').toUpperCase();
+  return v*(sfx==='T'?1e12:sfx==='B'?1e9:sfx==='M'?1e6:1);}
+function cagrOf(series,key){const pts=(series||[]).filter(d=>num(d[key])>0);if(pts.length<2)return null;
+  const first=num(pts[0][key]),last=num(pts[pts.length-1][key]);if(first<=0)return null;
+  return (Math.pow(last/first,1/(pts.length-1))-1)*100;}
+function metricsFromRaw(raw){
+  const mult=UNIT_MULT[raw.units]||1e6;
+  const P=raw.pnl||{};
+  const rev=num(P.revenue),cor=num(P.costOfRevenue);
+  const opex=(P.operatingExpenses||[]).reduce((a,e)=>a+Math.abs(num(e.value)),0);
+  const nonOp=(P.nonOperating||[]).reduce((a,e)=>a+num(e.value),0);
+  const gp=rev-cor,oi=gp-opex;
+  const ni=P.netIncome!=null&&P.netIncome!==0?num(P.netIncome):(oi+nonOp-num(P.incomeTax));
+  const B=raw.balanceSheet||{};
+  const sum=a=>(a||[]).reduce((t,x)=>t+num(x.value),0);
+  const curA=sum(B.currentAssets),ncA=sum(B.nonCurrentAssets),curL=sum(B.currentLiabilities),ncL=sum(B.nonCurrentLiabilities),eq=sum(B.equity);
+  const pf=raw.profile||{};
+  const fy=(pf.fiveYearRevenue||[]).map(d=>({year:String(d.year||''),revenue:num(d.revenue),netIncome:d.netIncome!=null?num(d.netIncome):0}));
+  return{
+    name:raw.company||'Company',ticker:(pf.ticker||'').toUpperCase(),period:raw.period||'',
+    rev:rev*mult,gp:gp*mult,oi:oi*mult,ni:ni*mult,
+    gm:rev>0?gp/rev*100:null,om:rev>0?oi/rev*100:null,nm:rev>0?ni/rev*100:null,
+    revCagr:cagrOf(fy,'revenue'),niCagr:cagrOf(fy,'netIncome'),fiveYear:fy,
+    assets:(curA+ncA)*mult,liab:(curL+ncL)*mult,equity:eq*mult,
+    leverage:eq>0?(curL+ncL)/eq:null,currentRatio:curL>0?curA/curL:null,roe:eq>0?ni/eq*100:null,
+    marketCap:parseCapStr(pf.marketCap),
+    industryPE:num(pf.industryPE)||null,industryFwdPE:num(pf.industryForwardPE)||null};
+}
+function baselineMetrics(){return metricsFromRaw(buildExport());}
+const COMP_EXAMPLE={
+  company:'Alphabet Inc.',period:'FY2025',priorPeriod:'FY2024',currency:'USD',units:'millions',
+  pnl:{revenue:402836,costOfRevenue:162535,
+    operatingExpenses:[{name:'Research & development',value:61087},{name:'Sales & marketing',value:28693},{name:'General & administrative',value:21482}],
+    nonOperating:[{name:'Other income (expense), net',value:29787}],incomeTax:26656,netIncome:132170},
+  balanceSheet:{
+    currentAssets:[{name:'Cash & equivalents',value:30708},{name:'Marketable securities',value:96135},{name:'Accounts receivable, net',value:62886},{name:'Other current assets',value:16309}],
+    nonCurrentAssets:[{name:'Property & equipment, net',value:246597},{name:'Goodwill',value:33380},{name:'Operating lease right-of-use assets',value:15221},{name:'Non-marketable securities & other',value:94045}],
+    currentLiabilities:[{name:'Accounts payable',value:12200},{name:'Accrued compensation',value:17546},{name:'Accrued expenses & other',value:65898},{name:'Deferred revenue',value:6578},{name:'Income taxes payable',value:523}],
+    nonCurrentLiabilities:[{name:'Long-term debt',value:46547},{name:'Operating lease liabilities',value:12744},{name:'Long-term income taxes',value:9531},{name:'Other long-term liabilities',value:8449}],
+    equity:[{name:'Common stock & APIC',value:93126},{name:'Retained earnings',value:324055},{name:'Accum. other comp. loss',value:-1916}]},
+  profile:{ticker:'GOOGL',exchange:'NASDAQ',marketCap:'~$3.5T',industryPE:28,industryForwardPE:24,
+    fiveYearRevenue:[{year:'FY2021',revenue:257637,netIncome:76033},{year:'FY2022',revenue:282836,netIncome:59972},{year:'FY2023',revenue:307394,netIncome:73795},{year:'FY2024',revenue:350018,netIncome:100118},{year:'FY2025',revenue:402836,netIncome:132170}]}
+};
+function loadCompExample(){
+  compRaw=COMP_EXAMPLE;compMetrics=metricsFromRaw(COMP_EXAMPLE);
+  compQuery='GOOGL';compError='';compLoading=false;renderCompare();
+}
+async function fetchCompareCompany(t){
+  t=(t||'').trim();if(!t)return;
+  compQuery=t;
+  const key=t.toUpperCase();
+  if(compCache[key]){compRaw=compCache[key];compMetrics=metricsFromRaw(compRaw);compError='';renderCompare();return;}
+  if(!BACKEND_URL){compError='Backend not configured — comparison fetch needs the serverless API.';renderCompare();return;}
+  compLoading=true;compError='';renderCompare();
+  try{
+    const u=BACKEND_URL.replace(/\/$/,'')+'/fetch-filing?ticker='+encodeURIComponent(t)+'&form=10-K';
+    const r=await fetch(u);const data=await r.json();
+    if(!r.ok||data.error)throw new Error(data.error||('HTTP '+r.status));
+    compCache[key]=data;compRaw=data;compMetrics=metricsFromRaw(data);
+  }catch(e){compError=String(e&&e.message||e);compRaw=null;compMetrics=null;}
+  compLoading=false;renderCompare();
+}
+function compStatCell(label,val,color){return '<div><div style="font-size:10.5px;color:var(--ink-2);font-weight:600;text-transform:uppercase;letter-spacing:.04em">'+esc(label)+'</div><div style="font-size:19px;font-weight:700;color:'+color+';font-variant-numeric:tabular-nums">'+val+'</div></div>';}
+function renderCompare(){
+  const el=$('#comparePanel');if(!el)return;
+  if(!hasData()){
+    el.innerHTML='<div class="ov-hero"><div class="ov-eyebrow">Compare</div><div class="ov-headline">Load a <em>baseline</em> company first</div><div class="ov-summary">Structure a 10-K (or load the example) — then come back here to benchmark it against a competitor or any other ticker.</div></div>';
+    return;
+  }
+  const A=baselineMetrics();
+  const B=compMetrics;
+  const suggestions=((model.profile&&model.profile.competitors)||[]).map(c=>c.name).filter(Boolean).slice(0,6);
+  let h='<div class="stage-head"><div class="stage-title">Compare<small>Benchmark '+esc(A.name)+' against a competitor or any ticker. Both sides come from each company’s most recent 10-K.</small></div></div>';
+  h+='<div class="chartcard" style="padding:16px 18px;margin-bottom:16px">';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
+  h+='<input id="compTicker" value="'+esc(compQuery)+'" placeholder="Ticker or company — e.g. MSFT" style="flex:0 1 260px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13.5px" onkeydown="if(event.key===\'Enter\')fetchCompareCompany(this.value)">';
+  h+='<button class="b b-primary" onclick="fetchCompareCompany(document.getElementById(\'compTicker\').value)">'+(compLoading?'Fetching…':'Compare')+'</button>';
+  h+='<button class="b b-ghost" onclick="loadCompExample()">Load example (Alphabet FY2025)</button>';
+  if(suggestions.length)h+='<span style="font-size:12px;color:var(--ink-2);margin-left:6px">Suggested:</span>'+suggestions.map(s=>{const q=s.split('/')[0].trim();return '<button class="chip" style="padding:5px 11px;font-size:12px" onclick="fetchCompareCompany(\''+esc(q).replace(/'/g,'')+'\')">'+esc(s)+'</button>';}).join('');
+  h+='</div>';
+  if(compLoading)h+='<div style="font-size:13px;color:var(--ink-2);margin-top:10px">Pulling the 10-K from SEC EDGAR and structuring it with Claude — this can take a minute…</div>';
+  if(compError)h+='<div class="warn show" style="margin-top:10px">• '+esc(compError)+'</div>';
+  h+='</div>';
+  if(B){
+    const legend='<div class="legend" style="margin-top:8px"><span><i style="background:'+COMP_A+'"></i>'+esc(A.name)+(A.period?' ('+esc(A.period)+')':'')+'</span><span><i style="background:'+COMP_B+'"></i>'+esc(B.name)+(B.period?' ('+esc(B.period)+')':'')+'</span></div>';
+    h+='<div class="ov-card findings"><h4><span class="pin" style="background:'+COMP_A+'"></span>Income statement bridge</h4>';
+    h+='<svg class="viz" id="compBridge" viewBox="0 0 1100 340" preserveAspectRatio="xMidYMid meet" style="max-height:340px"></svg>'+legend+'</div>';
+    h+='<div class="ov-card findings" style="margin-top:16px"><h4><span class="pin" style="background:#00A3E0"></span>Margins</h4>';
+    h+='<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:6px">Bar = '+esc(A.name)+' · marker = '+esc(B.name)+'</div>';
+    h+='<svg class="viz" id="compMargins" viewBox="0 0 1100 230" preserveAspectRatio="xMidYMid meet" style="max-height:230px"></svg></div>';
+    // valuation multiples
+    const psA=(A.marketCap&&A.rev>0)?A.marketCap/A.rev:null;
+    const psB=(B.marketCap&&B.rev>0)?B.marketCap/B.rev:null;
+    h+='<div class="mkt-row">';
+    h+='<div class="mkt-card"><div class="mkt-card-label">P/E (TTM)</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">'+compStatCell(A.ticker||'Base','<span id="compPeA">…</span>',COMP_A_DARK)+compStatCell(B.ticker||'Comp','<span id="compPeB">…</span>',COMP_B)+'</div>'+(A.industryPE?'<div class="mkt-card-sub" style="margin-top:6px">Industry ~'+A.industryPE.toFixed(1)+'x</div>':'')+'</div>';
+    h+='<div class="mkt-card"><div class="mkt-card-label">Forward P/E</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">'+compStatCell(A.ticker||'Base','<span id="compFwdA">…</span>',COMP_A_DARK)+compStatCell(B.ticker||'Comp','<span id="compFwdB">…</span>',COMP_B)+'</div>'+(A.industryFwdPE?'<div class="mkt-card-sub" style="margin-top:6px">Industry ~'+A.industryFwdPE.toFixed(1)+'x</div>':'')+'</div>';
+    h+='<div class="mkt-card"><div class="mkt-card-label">Price / Sales</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">'+compStatCell(A.ticker||'Base',psA?psA.toFixed(1)+'x':'—',COMP_A_DARK)+compStatCell(B.ticker||'Comp',psB?psB.toFixed(1)+'x':'—',COMP_B)+'</div><div class="mkt-card-sub" style="margin-top:6px">Market cap ÷ revenue (approx.)</div></div>';
+    h+='<div class="mkt-card"><div class="mkt-card-label">Growth (5-yr CAGR)</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">';
+    const cg=v=>v==null?'—':(v>=0?'+':'')+v.toFixed(1)+'%';
+    h+=compStatCell('Rev · '+(A.ticker||'Base'),cg(A.revCagr),COMP_A_DARK)+compStatCell('Rev · '+(B.ticker||'Comp'),cg(B.revCagr),COMP_B);
+    h+=compStatCell('NI · '+(A.ticker||'Base'),cg(A.niCagr),COMP_A_DARK)+compStatCell('NI · '+(B.ticker||'Comp'),cg(B.niCagr),COMP_B);
+    h+='</div></div>';
+    h+='</div>';
+    // indexed growth charts
+    h+='<div class="comp-row" style="grid-template-columns:1fr 1fr">';
+    h+='<div class="ov-card"><h4><span class="pin" style="background:'+COMP_A+'"></span>Revenue, indexed to 100</h4><svg class="viz" id="compGrowthRev" viewBox="0 0 560 250" preserveAspectRatio="xMidYMid meet" style="max-height:250px"></svg></div>';
+    h+='<div class="ov-card"><h4><span class="pin" style="background:'+COMP_B+'"></span>Net income, indexed to 100</h4><svg class="viz" id="compGrowthNi" viewBox="0 0 560 250" preserveAspectRatio="xMidYMid meet" style="max-height:250px"></svg></div>';
+    h+='</div>';
+    h+='<div class="ov-card findings" style="margin-top:16px"><h4><span class="pin" style="background:#E8A317"></span>Balance sheet health</h4>';
+    h+='<svg class="viz" id="compRatios" viewBox="0 0 1100 250" preserveAspectRatio="xMidYMid meet" style="max-height:250px"></svg>'+legend+'</div>';
+    h+='<div class="hint" style="margin-top:14px">Comparisons are normalized to absolute dollars across each filing’s reporting units. Multiples use live market data; CAGR uses each company’s disclosed five-year history. Verify before relying on them.</div>';
+  }
+  el.innerHTML=h;
+  if(B){
+    drawCompBridge(A,B);drawCompMargins(A,B);
+    drawCompIndexed('compGrowthRev',A,B,'revenue');drawCompIndexed('compGrowthNi',A,B,'netIncome');
+    drawCompRatios(A,B);refreshCompPe(A,B);
+  }
+}
+function drawCompBridge(A,B){
+  const svg=d3.select('#compBridge');if(svg.empty())return;svg.selectAll('*').remove();
+  const W=1100,H=340,mL=20,mR=20,mT=34,mB=42;
+  const groups=[['Revenue',A.rev,B.rev],['Gross profit',A.gp,B.gp],['Operating income',A.oi,B.oi],['Net income',A.ni,B.ni]];
+  const all=groups.flatMap(g=>[g[1],g[2]]);
+  const hi=Math.max.apply(null,all.concat([1])),lo=Math.min.apply(null,all.concat([0]));
+  const y=v=>mT+(H-mT-mB)*(hi-v)/(hi-lo);const zero=y(0);
+  const gw=(W-mL-mR)/groups.length,bw=Math.min(96,gw/3);
+  groups.forEach((g,i)=>{
+    const cx=mL+gw*i+gw/2;
+    [[g[1],COMP_A,COMP_A_DARK,cx-bw-5],[g[2],COMP_B,COMP_B,cx+5]].forEach(([v,fill,txtCol,bx])=>{
+      const top=Math.min(y(v),zero),bh=Math.max(1.5,Math.abs(y(v)-zero));
+      svg.append('rect').attr('x',bx).attr('y',top).attr('width',bw).attr('height',bh).attr('fill',fill).attr('rx',3).attr('opacity',.92);
+      svg.append('text').attr('x',bx+bw/2).attr('y',v>=0?top-6:top+bh+13).attr('text-anchor','middle').attr('font-size',12).attr('font-weight',700).attr('fill',v>=0?txtCol:'#9B2D22').text(fmtAbs(v));
+    });
+    svg.append('text').attr('x',cx).attr('y',H-12).attr('text-anchor','middle').attr('font-size',12.5).attr('font-weight',600).attr('fill','#555').text(g[0]);
+  });
+  svg.append('line').attr('x1',mL).attr('y1',zero).attr('x2',W-mR).attr('y2',zero).attr('stroke','#ccc').attr('stroke-width',1);
+}
+function drawCompMargins(A,B){
+  const svg=d3.select('#compMargins');if(svg.empty())return;svg.selectAll('*').remove();
+  const rows=[['Gross margin',A.gm,B.gm],['Operating margin',A.om,B.om],['Net margin',A.nm,B.nm]];
+  const W=1100,x0=170,x1=1060,trackH=16;
+  const maxPct=Math.max.apply(null,rows.flatMap(r=>[r[1]||0,r[2]||0]).concat([10]))*1.18;
+  const sx=v=>x0+(x1-x0)*Math.max(0,v)/maxPct;
+  rows.forEach((r,i)=>{
+    const cy=42+i*68;
+    svg.append('text').attr('x',x0-14).attr('y',cy+4).attr('text-anchor','end').attr('font-size',13).attr('font-weight',600).attr('fill','#444').text(r[0]);
+    svg.append('rect').attr('x',x0).attr('y',cy-trackH/2).attr('width',x1-x0).attr('height',trackH).attr('fill','#f0f0ea').attr('rx',8);
+    if(r[1]!=null){
+      svg.append('rect').attr('x',x0).attr('y',cy-trackH/2).attr('width',Math.max(2,sx(r[1])-x0)).attr('height',trackH).attr('fill',COMP_A).attr('rx',8);
+      svg.append('text').attr('x',sx(r[1])+8).attr('y',cy+4).attr('font-size',12).attr('font-weight',700).attr('fill',COMP_A_DARK).text(r[1].toFixed(1)+'%');
+    }
+    if(r[2]!=null){
+      svg.append('line').attr('x1',sx(r[2])).attr('y1',cy-15).attr('x2',sx(r[2])).attr('y2',cy+15).attr('stroke',COMP_B).attr('stroke-width',3.5).attr('stroke-linecap','round');
+      svg.append('text').attr('x',sx(r[2])).attr('y',cy-20).attr('text-anchor','middle').attr('font-size',11.5).attr('font-weight',700).attr('fill',COMP_B).text(r[2].toFixed(1)+'%');
+    }
+  });
+}
+function drawCompIndexed(svgId,A,B,key){
+  const svg=d3.select('#'+svgId);if(svg.empty())return;svg.selectAll('*').remove();
+  const W=560,H=250,mL=44,mR=64,mT=16,mB=30;
+  const mk=m=>{const pts=(m.fiveYear||[]).filter(d=>num(d[key])>0);if(pts.length<2)return null;
+    const base=num(pts[0][key]);return pts.map((d,i)=>({i,year:d.year,idx:num(d[key])/base*100}));};
+  const sa=mk(A),sb=mk(B);
+  if(!sa&&!sb){placeholder(svg,'0 0 '+W+' '+H,'Not enough history');return;}
+  const all=[].concat(sa||[],sb||[]).map(d=>d.idx);
+  const lo=Math.min.apply(null,all.concat([95])),hi=Math.max.apply(null,all.concat([105]));
+  const pad=(hi-lo)*.08;
+  const y=v=>mT+(H-mT-mB)*(hi+pad-v)/(hi-lo+2*pad);
+  const maxN=Math.max(sa?sa.length:0,sb?sb.length:0);
+  const x=i=>mL+(W-mL-mR)*(maxN>1?i/(maxN-1):0);
+  [100,lo,hi].filter((v,i,arr)=>arr.indexOf(v)===i).forEach(t=>{
+    svg.append('line').attr('x1',mL).attr('y1',y(t)).attr('x2',W-mR).attr('y2',y(t)).attr('stroke','#eee').attr('stroke-width',1);
+    svg.append('text').attr('x',mL-6).attr('y',y(t)+4).attr('text-anchor','end').attr('font-size',10.5).attr('fill','#999').text(t.toFixed(0));
+  });
+  const yearsSrc=(sa&&(!sb||sa.length>=sb.length))?sa:sb;
+  yearsSrc.forEach(d=>{const yd=d.year.replace(/\D/g,'');svg.append('text').attr('x',x(d.i)).attr('y',H-8).attr('text-anchor','middle').attr('font-size',10.5).attr('fill','#888').text(yd?"'"+yd.slice(-2):d.year);});
+  const line=d3.line().x(d=>x(d.i)).y(d=>y(d.idx)).curve(d3.curveMonotoneX);
+  [[sa,COMP_A,COMP_A_DARK,A],[sb,COMP_B,COMP_B,B]].forEach(([s,col,txtCol,m])=>{
+    if(!s)return;
+    svg.append('path').datum(s).attr('fill','none').attr('stroke',col).attr('stroke-width',2.5).attr('d',line);
+    const last=s[s.length-1];
+    svg.append('circle').attr('cx',x(last.i)).attr('cy',y(last.idx)).attr('r',3.5).attr('fill',col);
+    svg.append('text').attr('x',x(last.i)+8).attr('y',y(last.idx)+4).attr('font-size',11.5).attr('font-weight',700).attr('fill',txtCol).text((m.ticker||m.name.slice(0,8))+' '+last.idx.toFixed(0));
+  });
+}
+function drawCompRatios(A,B){
+  const svg=d3.select('#compRatios');if(svg.empty())return;svg.selectAll('*').remove();
+  const rows=[
+    ['Liabilities / equity',A.leverage,B.leverage,v=>v.toFixed(2)+'x'],
+    ['Current ratio',A.currentRatio,B.currentRatio,v=>v.toFixed(2)+'x'],
+    ['Return on equity',A.roe,B.roe,v=>v.toFixed(1)+'%']];
+  const x0=180,x1=1010,barH=14,gap=5;
+  rows.forEach((r,i)=>{
+    const cy=40+i*74;
+    svg.append('text').attr('x',x0-14).attr('y',cy+10).attr('text-anchor','end').attr('font-size',13).attr('font-weight',600).attr('fill','#444').text(r[0]);
+    const rowMax=Math.max(r[1]||0,r[2]||0,0.01)*1.22;
+    [[r[1],COMP_A,COMP_A_DARK,cy-gap-barH],[r[2],COMP_B,COMP_B,cy+gap]].forEach(([v,fill,txtCol,by])=>{
+      if(v==null){svg.append('text').attr('x',x0+4).attr('y',by+barH-2).attr('font-size',11.5).attr('fill','#aaa').text('—');return;}
+      const w=Math.max(2,(x1-x0)*Math.max(0,v)/rowMax);
+      svg.append('rect').attr('x',x0).attr('y',by).attr('width',w).attr('height',barH).attr('fill',fill).attr('rx',3).attr('opacity',.92);
+      svg.append('text').attr('x',x0+w+8).attr('y',by+barH-2).attr('font-size',12).attr('font-weight',700).attr('fill',txtCol).text(r[3](v));
+    });
+  });
+}
+async function refreshCompPe(A,B){
+  const pairs=[[A.ticker,'#compPeA','#compFwdA'],[B.ticker,'#compPeB','#compFwdB']];
+  for(const[tk,peSel,fwdSel]of pairs){
+    const peEl=$(peSel),fwdEl=$(fwdSel);
+    if(!tk){if(peEl)peEl.textContent='—';if(fwdEl)fwdEl.textContent='—';continue;}
+    const parsed=parseYahooChart(await loadStockData(tk,'1y'));
+    if(peEl)peEl.textContent=parsed&&parsed.trailingPE?parsed.trailingPE.toFixed(1)+'x':'—';
+    if(fwdEl)fwdEl.textContent=parsed&&parsed.forwardPE?parsed.forwardPE.toFixed(1)+'x':'—';
+  }
 }
 function renderCompany(){
   const el=$('#companyPanel'),pf=model.profile;
@@ -868,42 +1264,85 @@ function renderCompany(){
     '<div class="ov-eyebrow">'+esc(sectorLine||'Company profile')+'</div>'+
     '<div class="ov-headline">'+esc(model.company||'Company')+(tickerLine?' <span style="font-size:16px;color:#5a5a5a;font-weight:600">('+esc(tickerLine)+')</span>':'')+'</div>'+
     (p.description?'<div class="ov-summary">'+esc(p.description)+'</div>':'')+'</div>';
-  const facts=[['Headquarters',p.headquarters],['Founded',p.founded],['Employees',p.employees],['Ticker',p.ticker],['Market cap',p.marketCap]].filter(f=>f[1]);
+  const facts=[['Headquarters',p.headquarters],['Founded',p.founded],['Employees',p.employees],['Ticker',p.ticker]].filter(f=>f[1]);
   if(facts.length)h+='<div class="kpis" style="margin-top:16px">'+facts.map(f=>fact(f[0],f[1])).join('')+'</div>';
-  const cards=[];
-  if(p.businessModel)cards.push(ovCard('What it does','#86BC25',[p.businessModel]));
-  if(p.segmentation)cards.push(ovCard('How it segments','#00A3E0',[p.segmentation]));
-  if(p.channels&&p.channels.length)cards.push(ovCard('Channels','#0E7BAA',p.channels.map(c=>c.name)));
-  if(p.differentiation&&p.differentiation.length)cards.push(ovCard('Differentiation','#86BC25',p.differentiation.map(c=>c.name)));
-  if((p.competitors&&p.competitors.length)||p.marketPosition||p.marketShare){
-    let inner='<div class="ov-card"><h4><span class="pin" style="background:#E8A317"></span>Competitors &amp; market position</h4>';
-    if(p.competitors&&p.competitors.length)inner+='<div style="margin-bottom:10px">'+p.competitors.map(c=>'<span style="display:inline-block;background:#f0f3ea;border:1px solid #dce6cb;color:#3c5e12;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;margin:0 6px 6px 0">'+esc(c.name)+'</span>').join('')+'</div>';
-    if(p.marketPosition)inner+='<div style="font-size:14px;margin-bottom:6px"><b>Position:</b> '+esc(p.marketPosition)+'</div>';
-    if(p.marketShare)inner+='<div style="font-size:14px"><b>Share:</b> '+esc(p.marketShare)+'</div>';
-    inner+='</div>';cards.push(inner);
+  // ── Market data + fiscal calendar row ──────────────────────────────────────
+  const RANGES=['1d','1mo','ytd','1y','5y','10y'];
+  const RLABELS=['1D','1M','YTD','1Y','5Y','10Y'];
+  const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  if(p.marketCap||p.ticker||p.sharesOutstanding||p.fiscalYearEnd){
+    h+='<div class="mkt-row">';
+    h+='<div class="mkt-card"><div class="mkt-card-label">Market cap</div><div class="mkt-card-val">'+esc(p.marketCap||'—')+'</div><div class="mkt-card-sub">Approx., from filing context</div></div>';
+    if(p.ticker){
+      h+='<div class="mkt-card"><div class="mkt-card-label">Stock price <span style="font-weight:400;font-size:11px;opacity:.65">('+esc(p.ticker)+')</span></div>';
+      h+='<div class="mkt-card-val" id="stockPriceVal">…</div><div class="mkt-card-sub" id="stockPriceSub">&nbsp;</div>';
+      h+='<div style="display:flex;gap:4px;flex-wrap:wrap;margin:8px 0 4px">'+RANGES.map((r,i)=>'<button class="chip stock-range-chip'+(state.stockRange===r?' active':'')+'" data-range="'+r+'" onclick="setStockRange(\''+r+'\')" style="padding:3px 9px;font-size:11px;border-radius:5px">'+RLABELS[i]+'</button>').join('')+'</div>';
+      h+='<div id="stockSparkline"></div></div>';
+    }else{
+      h+='<div class="mkt-card"><div class="mkt-card-label">Stock price</div><div class="mkt-card-val" style="font-size:14px;color:var(--ink-2)">Ticker not loaded</div></div>';
+    }
+    h+='<div class="mkt-card"><div class="mkt-card-label">Shares outstanding</div><div class="mkt-card-val">'+esc(p.sharesOutstanding||'—')+'</div><div class="mkt-card-sub">From most recent filing</div></div>';
+    if(p.ticker){
+      const indPE=p.industryPE?p.industryPE.toFixed(1)+'x':'—';
+      const indFwd=p.industryForwardPE?p.industryForwardPE.toFixed(1)+'x':'—';
+      h+='<div class="mkt-card"><div class="mkt-card-label">Valuation</div>';
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin-top:6px">';
+      h+='<div><div style="font-size:10.5px;color:var(--ink-2);font-weight:600;text-transform:uppercase;letter-spacing:.04em">P/E TTM</div><div id="peVal" class="mkt-card-val" style="font-size:20px">…</div><div style="font-size:11px;color:var(--ink-2)">Industry ~'+indPE+'</div></div>';
+      h+='<div><div style="font-size:10.5px;color:var(--ink-2);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Forward P/E</div><div id="fwdPeVal" class="mkt-card-val" style="font-size:20px">…</div><div style="font-size:11px;color:var(--ink-2)">Industry ~'+indFwd+'</div></div>';
+      h+='</div></div>';
+    }
+    if(p.fiscalYearEnd){
+      const fyeName=MONTH_NAMES[Math.max(0,Math.min(11,num(p.fiscalYearEnd)-1))];
+      h+='<div class="mkt-card" style="overflow:hidden"><div class="mkt-card-label">Fiscal calendar · ends '+esc(fyeName)+'</div><svg id="fiscalCalChart" viewBox="0 0 900 86" preserveAspectRatio="xMidYMid meet" style="width:100%;max-height:86px;display:block;margin-top:6px"></svg></div>';
+    }
+    h+='</div>';
   }
-  if((p.positioning||[]).some(z=>z.name))cards.push('<div class="ov-card ov-wide"><h4><span class="pin" style="background:#00A3E0"></span>Cost vs quality</h4><svg class="viz" id="posChart" viewBox="0 0 900 480" preserveAspectRatio="xMidYMid meet" style="max-height:480px"></svg></div>');
-  const msbCard=(p.marketShareBreakdown||[]).some(z=>z.name&&num(z.share)>0);
-  if(msbCard)cards.push('<div class="ov-card ov-wide"><h4><span class="pin" style="background:#86BC25"></span>Market share (estimated)</h4><svg class="viz" id="shareChart" viewBox="0 0 900 380" preserveAspectRatio="xMidYMid meet" style="max-height:380px"></svg></div>');
+  // ── Business basics cards ───────────────────────────────────────────────────
+  const bizCards=[];
+  if(p.businessModel)bizCards.push(ovCard('What it does','#86BC25',[p.businessModel]));
+  if(p.segmentation)bizCards.push(ovCard('How it segments','#00A3E0',[p.segmentation]));
+  if(p.channels&&p.channels.length)bizCards.push(ovCard('Channels','#0E7BAA',p.channels.map(c=>c.name)));
+  if(p.differentiation&&p.differentiation.length)bizCards.push(ovCard('Differentiation','#86BC25',p.differentiation.map(c=>c.name)));
+  if(bizCards.length)h+='<div class="ov-grid" style="margin-top:16px">'+bizCards.join('')+'</div>';
+  // ── Competitive analysis section ───────────────────────────────────────────
+  const hasComp=(p.competitors&&p.competitors.length)||p.marketPosition||p.marketShare;
+  const hasPos=(p.positioning||[]).some(z=>z.name);
+  const hasMsb=(p.marketShareBreakdown||[]).some(z=>z.name&&num(z.share)>0);
+  if(hasComp||hasPos||hasMsb){
+    // Competitors + Cost vs Quality side-by-side
+    if(hasComp||hasPos){
+      h+='<div class="comp-row">';
+      if(hasComp){
+        h+='<div class="ov-card"><h4><span class="pin" style="background:#E8A317"></span>Competitors &amp; market position</h4>';
+        if(p.competitors&&p.competitors.length)h+='<div style="margin-bottom:10px">'+p.competitors.map(c=>'<span style="display:inline-block;background:#f0f3ea;border:1px solid #dce6cb;color:#3c5e12;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;margin:0 6px 6px 0">'+esc(c.name)+'</span>').join('')+'</div>';
+        if(p.marketPosition)h+='<div style="font-size:14px;margin-bottom:6px"><b>Position:</b> '+esc(p.marketPosition)+'</div>';
+        if(p.marketShare)h+='<div style="font-size:14px"><b>Share:</b> '+esc(p.marketShare)+'</div>';
+        h+='</div>';
+      }else{h+='<div></div>';}
+      if(hasPos)h+='<div class="ov-card"><h4><span class="pin" style="background:#00A3E0"></span>Cost vs quality</h4><svg class="viz" id="posChart" viewBox="0 0 900 480" preserveAspectRatio="xMidYMid meet" style="max-height:480px"></svg></div>';
+      h+='</div>';
+    }
+    // Market share — full width card with description
+    if(hasMsb){
+      h+='<div class="ov-card findings" style="margin-top:16px">';
+      h+='<h4><span class="pin" style="background:#86BC25"></span>Market share (estimated)</h4>';
+      if(p.marketShare)h+='<div style="font-size:13.5px;color:var(--ink-2);margin-bottom:8px">'+esc(p.marketShare)+'</div>';
+      h+='<svg class="viz" id="shareChart" viewBox="0 0 900 380" preserveAspectRatio="xMidYMid meet" style="max-height:380px"></svg></div>';
+    }
+  }
+  // ── Five-year revenue ───────────────────────────────────────────────────────
   const fy=(p.fiveYearRevenue||[]).filter(d=>d.revenue>0);
   let series=fy;
   if(!series.length){const fb=[];if(model.prior.revenue>0)fb.push({year:model.priorPeriod||'Prior',revenue:model.prior.revenue});if(model.pnl.revenue>0)fb.push({year:model.period||'Current',revenue:model.pnl.revenue});series=fb;}
-  let fyCard='';
   if(series.length>=2){const first=series[0].revenue,last=series[series.length-1].revenue,n=series.length-1;
     const cagr=first>0?(Math.pow(last/first,1/n)-1)*100:null;
-    fyCard='<div class="ov-card findings"><h4><span class="pin" style="background:#4E7D1C"></span>Five-year revenue'+(cagr!=null?' · '+(cagr>=0?'+':'')+cagr.toFixed(1)+'% CAGR':'')+'</h4><svg class="viz" id="companyChart" viewBox="0 0 1100 260" preserveAspectRatio="xMidYMid meet" style="max-height:280px"></svg></div>';}
-  let fyCalCard='';
-  if(p.fiscalYearEnd){
-    const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
-    const fyeName=MONTH_NAMES[Math.max(0,Math.min(11,num(p.fiscalYearEnd)-1))];
-    fyCalCard='<div class="ov-card findings"><h4><span class="pin" style="background:#00A3E0"></span>Fiscal calendar · year ends '+esc(fyeName)+'</h4><svg class="viz" id="fiscalCalChart" viewBox="0 0 1100 90" preserveAspectRatio="xMidYMid meet" style="max-height:90px"></svg></div>';
-  }
-  h+='<div class="ov-grid">'+cards.join('')+fyCalCard+fyCard+'</div>';
+    h+='<div class="ov-card findings" style="margin-top:16px"><h4><span class="pin" style="background:#4E7D1C"></span>Five-year revenue'+(cagr!=null?' · '+(cagr>=0?'+':'')+cagr.toFixed(1)+'% CAGR':'')+'</h4><svg class="viz" id="companyChart" viewBox="0 0 1100 260" preserveAspectRatio="xMidYMid meet" style="max-height:280px"></svg></div>';}
   h+='<div class="hint" style="margin-top:14px">Positioning, market share, and the five-year series may draw on general market knowledge beyond this single filing — verify before relying on them.'+(pf?'':' Structure a filing with Claude to populate the full profile.')+'</div>';
   el.innerHTML=h;
   if(series.length>=2)drawFiveYear(series);
   drawPositioning();drawPie();
-  if(p.fiscalYearEnd)drawFiscalCalendar(num(p.fiscalYearEnd));
+  if(p.fiscalYearEnd&&$('#fiscalCalChart'))drawFiscalCalendar(num(p.fiscalYearEnd),'fiscalCalChart');
+  if(p.ticker&&BACKEND_URL)refreshStockCard(p.ticker);
 }
 function renderOverview(){
   const p=$('#ovPanel');
@@ -949,14 +1388,14 @@ function simple(label,key,opts){opts=opts||{};const v=getP(key);return '<div cla
 function unitsField(){return '<div class="field"><label>Currency / units</label><input data-field="simple" data-key="currency" style="flex:0 0 70px" value="'+(model.currency||'USD')+'"/><select data-field="simple" data-key="units">'+['billions','millions','thousands','absolute'].map(u=>'<option '+(model.units===u?'selected':'')+'>'+u+'</option>').join('')+'</select></div>';}
 function subBox(rows){return '<div class="subtotals">'+rows.map(r=>'<div class="'+(r[2]?'accent':'')+'"><span>'+r[0]+'</span><span id="'+r[1].slice(1)+'">—</span></div>').join('')+'</div>';}
 function area(label,key){const v=getP(key);return '<div class="field" style="align-items:flex-start"><label style="padding-top:6px">'+label+'</label><textarea data-field="simple" data-key="'+key+'" style="flex:1;min-height:58px;font-size:13px;line-height:1.4">'+esc(v||'')+'</textarea></div>';}
-function emptyProfile(){return {description:'',sector:'',industry:'',headquarters:'',founded:'',employees:'',ticker:'',exchange:'',businessModel:'',segmentation:'',marketPosition:'',marketShare:'',marketCap:'',fiscalYearEnd:0,channels:[],competitors:[],differentiation:[],positioning:[],marketShareBreakdown:[],fiveYearRevenue:[]};}
+function emptyProfile(){return {description:'',sector:'',industry:'',headquarters:'',founded:'',employees:'',ticker:'',exchange:'',businessModel:'',segmentation:'',marketPosition:'',marketShare:'',marketCap:'',sharesOutstanding:'',fiscalYearEnd:0,channels:[],competitors:[],differentiation:[],positioning:[],marketShareBreakdown:[],fiveYearRevenue:[]};}
 function buildEditor(){
   const e=$('#editor');const tab=state.tab;let h='';
   h+=simple('Company','company')+simple('Fiscal year','period',{ph:'FY2024'})+unitsField();
   if(tab==='company'){
     if(!model.profile)model.profile=emptyProfile();
     h+=area('Description','profile.description');
-    h+=simple('Sector','profile.sector')+simple('Industry','profile.industry')+simple('Headquarters','profile.headquarters')+simple('Founded','profile.founded')+simple('Employees','profile.employees')+simple('Ticker','profile.ticker')+simple('Exchange','profile.exchange')+simple('Market cap','profile.marketCap',{ph:'e.g. ~$3.4T'})+simple('Fiscal year end (month)','profile.fiscalYearEnd',{num:1,ph:'1–12, e.g. 9 for Sep'});
+    h+=simple('Sector','profile.sector')+simple('Industry','profile.industry')+simple('Headquarters','profile.headquarters')+simple('Founded','profile.founded')+simple('Employees','profile.employees')+simple('Ticker','profile.ticker')+simple('Exchange','profile.exchange')+simple('Market cap','profile.marketCap',{ph:'e.g. ~$3.4T'})+simple('Shares outstanding','profile.sharesOutstanding',{ph:'e.g. 15.4B'})+simple('Fiscal year end (month)','profile.fiscalYearEnd',{num:1,ph:'1–12, e.g. 9 for Sep'});
     h+=area('Business model','profile.businessModel')+area('How it segments','profile.segmentation');
     h+='<h3 class="eh">Channels</h3>'+grid('profile.channels',[{h:'Channel',key:'name'}],'Add channel');
     h+='<h3 class="eh">Competitors</h3>'+grid('profile.competitors',[{h:'Competitor',key:'name'}],'Add competitor');
@@ -964,7 +1403,7 @@ function buildEditor(){
     h+=area('Market position','profile.marketPosition')+simple('Market share','profile.marketShare');
     h+='<h3 class="eh">Cost vs quality (0–100)</h3>'+grid('profile.positioning',[{h:'Player',key:'name'},{h:'Price',key:'cost',num:1},{h:'Quality',key:'quality',num:1}],'Add player');
     h+='<h3 class="eh">Market share (%) — company &amp; top competitors</h3>'+grid('profile.marketShareBreakdown',[{h:'Player',key:'name'},{h:'Share %',key:'share',num:1,w:'34%'}],'Add player');
-    h+='<h3 class="eh">Five-year revenue</h3>'+grid('profile.fiveYearRevenue',[{h:'Year',key:'year'},{h:'Revenue',key:'revenue',num:1,w:'40%'}],'Add year');
+    h+='<h3 class="eh">Five-year revenue</h3>'+grid('profile.fiveYearRevenue',[{h:'Year',key:'year'},{h:'Revenue',key:'revenue',num:1,w:'32%'},{h:'Net income',key:'netIncome',num:1,w:'32%'}],'Add year');
     e.innerHTML=h;updateSub();return;
   }
   if(tab==='pnl'||tab==='overview'){
@@ -1009,7 +1448,7 @@ $('#editor').addEventListener('input',ev=>{
 });
 $('#editor').addEventListener('click',ev=>{
   const a=ev.target.dataset.action;if(!a)return;const grp=ev.target.dataset.group,seg=grp.split('.').pop();
-  if(a==='add'){const tmpl=seg==='segments'?{name:'New segment',revenue:0,operatingIncome:null}:seg==='geographies'?{name:'New region',revenue:0}:seg==='fiveYearRevenue'?{year:'',revenue:0}:seg==='positioning'?{name:'',cost:50,quality:50}:seg==='marketShareBreakdown'?{name:'',share:0}:(seg==='channels'||seg==='competitors'||seg==='differentiation')?{name:''}:{name:'New item',value:0};getP(grp).push(tmpl);buildEditor();renderAll();}
+  if(a==='add'){const tmpl=seg==='segments'?{name:'New segment',revenue:0,operatingIncome:null}:seg==='geographies'?{name:'New region',revenue:0}:seg==='fiveYearRevenue'?{year:'',revenue:0,netIncome:null}:seg==='positioning'?{name:'',cost:50,quality:50}:seg==='marketShareBreakdown'?{name:'',share:0}:(seg==='channels'||seg==='competitors'||seg==='differentiation')?{name:''}:{name:'New item',value:0};getP(grp).push(tmpl);buildEditor();renderAll();}
   else if(a==='del'){getP(grp).splice(+ev.target.dataset.idx,1);buildEditor();renderAll();}
 });
 function setTab(t){
@@ -1024,6 +1463,7 @@ function renderActive(){
   else if(state.tab==='pnl'){renderPnlKpis();renderPnlModes();renderPnlWarn();renderSankey();}
   else if(state.tab==='bs'){renderBsKpis();renderBsWarn();renderTreemap();}
   else if(state.tab==='cf'){renderCfKpis();renderCfModes();renderWaterfall();}
+  else if(state.tab==='compare')renderCompare();
 }
 function renderAll(){
   recompute();updateSub();
