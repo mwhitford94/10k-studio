@@ -518,7 +518,7 @@ async function fetchViaBackend(co,rt,period){
   const t0=Date.now();
   const tick=setInterval(()=>{
     const s=Math.round((Date.now()-t0)/1000);
-    setStatus('Fetching '+co.toUpperCase()+' from EDGAR and structuring with Claude — '+s+'s elapsed. First fetch of a filing typically takes 30–60s; repeats are cached and load instantly.','info');
+    setStatus('Fetching '+co.toUpperCase()+' from EDGAR and structuring with Claude — '+s+'s elapsed. First fetch of a filing takes 60–90s on average; repeats are cached and load instantly.','info');
   },1000);
   setStatus('Fetching the filing from SEC EDGAR — structuring runs as two parallel Claude passes…','info');
   try{
