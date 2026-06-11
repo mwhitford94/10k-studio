@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/fetch-filing.js": { "maxDuration": 120 },
+    "api/stock-data.js": { "maxDuration": 30 }
+  }
+}
