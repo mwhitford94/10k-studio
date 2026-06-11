@@ -401,7 +401,7 @@ function adopt(p){
       positioning:(pf.positioning||[]).map(x=>({name:x.name||'',cost:num(x.cost),quality:num(x.quality)})).filter(x=>x.name),
       marketShareBreakdown:(pf.marketShareBreakdown||[]).map(x=>({name:x.name||'',share:num(x.share)})).filter(x=>x.name),
       marketShareMarkets:(pf.marketShareMarkets||[]).map(m=>({market:m.market?String(m.market):'',entries:(m.entries||[]).map(x=>({name:x.name||'',share:num(x.share)})).filter(x=>x.name&&x.share>0)})).filter(m=>m.market&&m.entries.length),
-      marketCap:pf.marketCap||'',sharesOutstanding:pf.sharesOutstanding||'',fiscalYearEnd:num(pf.fiscalYearEnd)||0,industryPE:num(pf.industryPE)||0,industryForwardPE:num(pf.industryForwardPE)||0,
+      marketCap:pf.marketCap||'',sharesOutstanding:pf.sharesOutstanding||'',fiscalYearEnd:num(pf.fiscalYearEnd)||0,industryPE:num(pf.industryPE)||0,industryForwardPE:num(pf.industryForwardPE)||0,forwardPE:num(pf.forwardPE)||0,
       mdaKpis:(pf.mdaKpis||[]).map(x=>({name:x.name?String(x.name):'',value:x.value!=null?String(x.value):'',sub:x.sub?String(x.sub):''})).filter(x=>x.name&&x.value),
       fiveYearRevenue:(pf.fiveYearRevenue||[]).map(x=>({year:String(x.year||''),revenue:num(x.revenue),netIncome:x.netIncome!=null?num(x.netIncome):null}))};
   } else model.profile=null;
@@ -425,7 +425,7 @@ const SYS=[
 '"cashFlowPrior":{"netChange":0},',
 '"cashFlowNotes":[{"item":"","note":""}],',
 '"dimensionalCash":{"metric":"","bySegment":[{"name":"","value":0}],"byGeography":[{"name":"","value":0}]},',
-'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","marketCap":"","sharesOutstanding":"","fiscalYearEnd":0,"industryPE":0,"industryForwardPE":0,"mdaKpis":[{"name":"","value":"","sub":""}],"positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"marketShareMarkets":[{"market":"","entries":[{"name":"","share":0}]}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0,"netIncome":0}]},',
+'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","marketCap":"","sharesOutstanding":"","fiscalYearEnd":0,"industryPE":0,"industryForwardPE":0,"forwardPE":0,"mdaKpis":[{"name":"","value":"","sub":""}],"positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"marketShareMarkets":[{"market":"","entries":[{"name":"","share":0}]}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0,"netIncome":0}]},',
 '"narrative":{"headline":"","summary":"","findings":[""],"outlook":[""],"risks":[""],"capitalAllocation":[""]}}',
 'Rules:',
 '- period = most recent fiscal year; priorPeriod = the year before. Use the most recent year for all current figures.',
@@ -447,6 +447,7 @@ const SYS=[
 '- profile.sharesOutstanding = shares outstanding as a short formatted string (e.g. "15.4B", "~2.3B"). Use the filing or general knowledge.',
 '- profile.industryPE = approximate trailing P/E for the company\'s industry peer group (numeric, e.g. 25). Use general knowledge. 0 if unknown.',
 '- profile.industryForwardPE = approximate forward P/E for the industry peer group (numeric). 0 if unknown.',
+'- profile.forwardPE = approximate forward P/E for THIS company (numeric), from general knowledge of consensus expectations. Used only as a labeled fallback when live market data is unavailable. 0 if unknown.',
 '- profile.mdaKpis = 4-6 key performance indicators SPECIFIC to this company, drawn from the MD&A discussion (e.g. installed base, ARPU, same-store sales, backlog, RPO, daily active users, segment gross margins, net adds). Each {name, value, sub}: name short; value a short string WITH units (e.g. "2.35B devices", "75.2%", "$108.5B"); sub = YoY change or one-line context.',
 '- fiveYearRevenue items: include netIncome = reported net income for that year in the same units (0 if unknown).',
 '- narrative: YOUR OWN concise analysis in your own words (never copy sentences from the filing). headline ~10 words; summary 2-3 sentences; findings 4-6 short points; outlook 2-4; risks 2-4; capitalAllocation 2-3 or [].',
@@ -608,7 +609,7 @@ function loadExample(){
         {market:'Smartwatches — global units',entries:[{name:'Apple',share:21},{name:'Huawei',share:12},{name:'Samsung',share:9},{name:'Garmin',share:6}]},
         {market:'Personal computers — global units',entries:[{name:'Apple',share:9},{name:'Lenovo',share:25},{name:'HP',share:20},{name:'Dell',share:15}]}],
       differentiation:[{name:'Tight hardware–software–services integration and silicon (Apple-designed chips)'},{name:'Brand strength and pricing power at the premium tier'},{name:'2.35B+ active-device installed base driving recurring services'},{name:'Privacy positioning and ecosystem switching costs'}],
-      marketCap:'~$4.0T',sharesOutstanding:'~14.8B',fiscalYearEnd:9,industryPE:28,industryForwardPE:24,
+      marketCap:'~$4.0T',sharesOutstanding:'~14.8B',fiscalYearEnd:9,industryPE:28,industryForwardPE:24,forwardPE:30.2,
       mdaKpis:[{name:'Services revenue',value:'$108.5B',sub:'+13% YoY · all-time high'},{name:'Products gross margin',value:'~36%',sub:'Mix + input-cost discipline'},{name:'Services gross margin',value:'~75%',sub:'Roughly 2× products margin'},{name:'Installed base',value:'2.35B+ devices',sub:'All-time high across categories'},{name:'Effective tax rate',value:'15.6%',sub:'vs 24.1% in FY2024 (one-time charge)'},{name:'Capital returned',value:'~$106B',sub:'$90.7B buybacks + $15.4B dividends'}],
       fiveYearRevenue:[{year:'FY2021',revenue:365817,netIncome:94680},{year:'FY2022',revenue:394328,netIncome:99803},{year:'FY2023',revenue:383285,netIncome:96995},{year:'FY2024',revenue:391035,netIncome:93736},{year:'FY2025',revenue:416161,netIncome:112010}]},
     narrative:{headline:'Record revenue and profit as Services momentum offsets a maturing hardware cycle',
@@ -1162,7 +1163,11 @@ async function refreshStockCard(ticker){
     if(sh&&ni>0)tpe=parsed.currentPrice*sh/ni;
   }
   if(peEl)peEl.textContent=tpe?tpe.toFixed(1)+'x':'—';
-  if(fwdEl)fwdEl.textContent=parsed&&parsed.forwardPE?parsed.forwardPE.toFixed(1)+'x':'—';
+  if(fwdEl){
+    let fpe=parsed&&parsed.forwardPE||null,fEst=false;
+    if(!fpe&&(model.profile||{}).forwardPE){fpe=model.profile.forwardPE;fEst=true;}
+    fwdEl.innerHTML=fpe?(fpe.toFixed(1)+'x'+(fEst?' <span style="font-size:11px;font-weight:400;color:var(--ink-2)">est.</span>':'')):'—';
+  }
 }
 function setStockRange(range){
   state.stockRange=range;
@@ -1204,6 +1209,7 @@ function metricsFromRaw(raw){
     assets:(curA+ncA)*mult,liab:(curL+ncL)*mult,equity:eq*mult,
     leverage:eq>0?(curL+ncL)/eq:null,currentRatio:curL>0?curA/curL:null,roe:eq>0?ni/eq*100:null,
     marketCap:parseCapStr(pf.marketCap),shares:parseCapStr(pf.sharesOutstanding),
+    fwdPeEst:num(pf.forwardPE)||null,
     industryPE:num(pf.industryPE)||null,industryFwdPE:num(pf.industryForwardPE)||null};
 }
 function baselineMetrics(){return metricsFromRaw(buildExport());}
@@ -1218,7 +1224,7 @@ const COMP_EXAMPLE={
     currentLiabilities:[{name:'Accounts payable',value:12200},{name:'Accrued compensation',value:17546},{name:'Accrued expenses & other',value:65898},{name:'Deferred revenue',value:6578},{name:'Income taxes payable',value:523}],
     nonCurrentLiabilities:[{name:'Long-term debt',value:46547},{name:'Operating lease liabilities',value:12744},{name:'Long-term income taxes',value:9531},{name:'Other long-term liabilities',value:8449}],
     equity:[{name:'Common stock & APIC',value:93126},{name:'Retained earnings',value:324055},{name:'Accum. other comp. loss',value:-1916}]},
-  profile:{ticker:'GOOGL',exchange:'NASDAQ',marketCap:'~$3.5T',sharesOutstanding:'~12.1B',industryPE:28,industryForwardPE:24,
+  profile:{ticker:'GOOGL',exchange:'NASDAQ',marketCap:'~$3.5T',sharesOutstanding:'~12.1B',industryPE:28,industryForwardPE:24,forwardPE:25,
     fiveYearRevenue:[{year:'FY2021',revenue:257637,netIncome:76033},{year:'FY2022',revenue:282836,netIncome:59972},{year:'FY2023',revenue:307394,netIncome:73795},{year:'FY2024',revenue:350018,netIncome:100118},{year:'FY2025',revenue:402836,netIncome:132170}]}
 };
 function loadCompExample(){
@@ -1408,7 +1414,11 @@ async function refreshCompPe(A,B){
     let tpe=parsed&&parsed.trailingPE||null;
     if(!tpe&&parsed&&parsed.currentPrice&&m.shares&&m.ni>0)tpe=parsed.currentPrice*m.shares/m.ni;
     if(peEl)peEl.textContent=tpe?tpe.toFixed(1)+'x':'—';
-    if(fwdEl)fwdEl.textContent=parsed&&parsed.forwardPE?parsed.forwardPE.toFixed(1)+'x':'—';
+    if(fwdEl){
+      let fpe=parsed&&parsed.forwardPE||null,fEst=false;
+      if(!fpe&&m.fwdPeEst){fpe=m.fwdPeEst;fEst=true;}
+      fwdEl.innerHTML=fpe?(fpe.toFixed(1)+'x'+(fEst?' <span style="font-size:10px;font-weight:400;color:var(--ink-2)">est.</span>':'')):'—';
+    }
   }
 }
 function renderCompany(){
@@ -1576,7 +1586,7 @@ function simple(label,key,opts){opts=opts||{};const v=getP(key);return '<div cla
 function unitsField(){return '<div class="field"><label>Currency / units</label><input data-field="simple" data-key="currency" style="flex:0 0 70px" value="'+(model.currency||'USD')+'"/><select data-field="simple" data-key="units">'+['billions','millions','thousands','absolute'].map(u=>'<option '+(model.units===u?'selected':'')+'>'+u+'</option>').join('')+'</select></div>';}
 function subBox(rows){return '<div class="subtotals">'+rows.map(r=>'<div class="'+(r[2]?'accent':'')+'"><span>'+r[0]+'</span><span id="'+r[1].slice(1)+'">—</span></div>').join('')+'</div>';}
 function area(label,key){const v=getP(key);return '<div class="field" style="align-items:flex-start"><label style="padding-top:6px">'+label+'</label><textarea data-field="simple" data-key="'+key+'" style="flex:1;min-height:58px;font-size:13px;line-height:1.4">'+esc(v||'')+'</textarea></div>';}
-function emptyProfile(){return {description:'',sector:'',industry:'',headquarters:'',founded:'',employees:'',ticker:'',exchange:'',businessModel:'',segmentation:'',marketPosition:'',marketShare:'',marketCap:'',sharesOutstanding:'',fiscalYearEnd:0,industryPE:0,industryForwardPE:0,mdaKpis:[],channels:[],competitors:[],differentiation:[],positioning:[],marketShareBreakdown:[],marketShareMarkets:[],fiveYearRevenue:[]};}
+function emptyProfile(){return {description:'',sector:'',industry:'',headquarters:'',founded:'',employees:'',ticker:'',exchange:'',businessModel:'',segmentation:'',marketPosition:'',marketShare:'',marketCap:'',sharesOutstanding:'',fiscalYearEnd:0,industryPE:0,industryForwardPE:0,forwardPE:0,mdaKpis:[],channels:[],competitors:[],differentiation:[],positioning:[],marketShareBreakdown:[],marketShareMarkets:[],fiveYearRevenue:[]};}
 function buildEditor(){
   const e=$('#editor');const tab=state.tab;let h='';
   h+=simple('Company','company')+simple('Fiscal year','period',{ph:'FY2024'})+unitsField();
