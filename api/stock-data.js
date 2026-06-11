@@ -20,31 +20,42 @@ export default async function handler(req, res) {
   };
   try {
     const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${r}&interval=${interval}&includePrePost=false`;
-    const quoteUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail,defaultKeyStatistics`;
-    const [chartRes, quoteRes] = await Promise.allSettled([
+    const [chartRes, pe] = await Promise.all([
       fetch(chartUrl, { headers }),
-      fetch(quoteUrl, { headers })
+      getYahooPE(ticker, headers)
     ]);
-    if (chartRes.status !== 'fulfilled' || !chartRes.value.ok) {
-      const code = chartRes.status === 'fulfilled' ? chartRes.value.status : 500;
-      res.status(code).json({ error: 'Yahoo Finance chart returned ' + code + ' for ' + ticker });
+    if (!chartRes.ok) {
+      res.status(chartRes.status).json({ error: 'Yahoo Finance chart returned ' + chartRes.status + ' for ' + ticker });
       return;
     }
-    const data = await chartRes.value.json();
-    // Attach PE data if available
-    if (quoteRes.status === 'fulfilled' && quoteRes.value.ok) {
-      try {
-        const qj = await quoteRes.value.json();
-        const sd = qj?.quoteSummary?.result?.[0]?.summaryDetail || {};
-        data._pe = {
-          trailingPE: sd.trailingPE?.raw || null,
-          forwardPE: sd.forwardPE?.raw || null
-        };
-      } catch (_) { /* non-fatal */ }
-    }
+    const data = await chartRes.json();
+    if (pe) data._pe = pe;
     res.setHeader('Cache-Control', `public, max-age=${r === '1d' ? 60 : 300}`);
     res.status(200).json(data);
   } catch (e) {
     res.status(500).json({ error: String(e && e.message || e) });
   }
+}
+
+// Yahoo's quoteSummary endpoint requires a session cookie + crumb since 2023.
+async function getYahooPE(ticker, headers) {
+  try {
+    const c = await fetch('https://fc.yahoo.com', { headers, redirect: 'manual' });
+    const setCookies = typeof c.headers.getSetCookie === 'function' ? c.headers.getSetCookie() : [c.headers.get('set-cookie')].filter(Boolean);
+    if (!setCookies.length) return null;
+    const cookie = setCookies.map(s => s.split(';')[0]).join('; ');
+    const h = Object.assign({}, headers, { Cookie: cookie });
+    const cr = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', { headers: h });
+    if (!cr.ok) return null;
+    const crumb = (await cr.text()).trim();
+    if (!crumb || crumb.includes('<')) return null;
+    const qs = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail&crumb=${encodeURIComponent(crumb)}`, { headers: h });
+    if (!qs.ok) return null;
+    const qj = await qs.json();
+    const sd = (qj && qj.quoteSummary && qj.quoteSummary.result && qj.quoteSummary.result[0] && qj.quoteSummary.result[0].summaryDetail) || {};
+    return {
+      trailingPE: (sd.trailingPE && sd.trailingPE.raw) || null,
+      forwardPE: (sd.forwardPE && sd.forwardPE.raw) || null
+    };
+  } catch (_) { return null; }
 }
