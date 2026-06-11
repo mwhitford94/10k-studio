@@ -1,8 +1,8 @@
 // api/stock-data.js — market data proxy for stock price / sparkline / PE data.
 //
 // Price source tiers:
-//   1) Twelve Data (official API, reliable from data-center IPs) — set TWELVEDATA_API_KEY
-//   2) Yahoo Finance chart (unofficial; plain, then with a guest session cookie)
+//   1) Yahoo Finance chart (primary; plain, then with a guest session cookie)
+//   2) Twelve Data (fallback when Yahoo blocks the request) — set TWELVEDATA_API_KEY
 //   3) Alpha Vantage — set ALPHAVANTAGE_API_KEY (optional last resort)
 //
 // Forward/trailing P/E: best-effort from Yahoo quoteSummary (analyst-estimate data
@@ -31,18 +31,21 @@ export default async function handler(req, res) {
     // Kick off the Yahoo guest session early — used for PE and the Yahoo price retry.
     const sessionPromise = getYahooSession(headers);
 
-    let data = await fetchTwelveData(ticker, r);
-    let source = data ? 'twelvedata' : null;
-
+    // Tier 1: Yahoo (primary — best data quality), plain then with a session cookie.
+    const intervalMap = { '1d': '5m', '5d': '15m', '1mo': '1d', '3mo': '1d', '6mo': '1d', 'ytd': '1d', '1y': '1d', '2y': '1wk', '5y': '1wk', '10y': '1mo', 'max': '1mo' };
+    let data = await fetchYahooChart(ticker, r, intervalMap[r] || '1d', headers, null);
     if (!data) {
-      const intervalMap = { '1d': '5m', '5d': '15m', '1mo': '1d', '3mo': '1d', '6mo': '1d', 'ytd': '1d', '1y': '1d', '2y': '1wk', '5y': '1wk', '10y': '1mo', 'max': '1mo' };
-      data = await fetchYahooChart(ticker, r, intervalMap[r] || '1d', headers, null);
-      if (!data) {
-        const session = await sessionPromise;
-        if (session) data = await fetchYahooChart(ticker, r, intervalMap[r] || '1d', headers, session.cookie);
-      }
-      if (data) source = 'yahoo';
+      const session = await sessionPromise;
+      if (session) data = await fetchYahooChart(ticker, r, intervalMap[r] || '1d', headers, session.cookie);
     }
+    let source = data ? 'yahoo' : null;
+
+    // Tier 2: Twelve Data (only when Yahoo is blocked)
+    if (!data) {
+      data = await fetchTwelveData(ticker, r);
+      if (data) source = 'twelvedata';
+    }
+    // Tier 3: Alpha Vantage (optional last resort)
     if (!data) {
       data = await fetchAlphaVantage(ticker, r);
       if (data) source = 'alphavantage';
