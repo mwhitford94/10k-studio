@@ -32,7 +32,7 @@ const COMMENTARY_PROMPT = [
 '"cashFlowNotes":[{"item":"","note":""}],',
 '"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","marketCap":"","sharesOutstanding":"","fiscalYearEnd":0,"industryPE":0,"industryForwardPE":0,"forwardPE":0,"mdaKpis":[{"name":"","value":"","sub":""}],"positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"marketShareMarkets":[{"market":"","entries":[{"name":"","share":0}]}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0,"netIncome":0}]},',
 '"narrative":{"headline":"","summary":"","findings":[""],"outlook":[""],"risks":[""],"capitalAllocation":[""]}}',
-'Rules: balanceSheetNotes = for each balance sheet line that changed meaningfully plus "Assets"/"Liabilities"/"Equity" totals, 1-2 sentences from the MD&A financial condition discussion; item must EXACTLY match the statement line label as printed in the filing. cashFlowNotes = same for cash flow line items plus "Operating"/"Investing"/"Financing"/"Net change in cash". profile.fiscalYearEnd = month 1-12. profile.marketCap = approximate short string (e.g. "~$3.4T"); your knowledge may be stale — the viewer recomputes live, this is only a fallback. profile.sharesOutstanding = REQUIRED short string (e.g. "15.4B"); every 10-K/10-Q states it on the COVER PAGE ("...shares outstanding as of...") — read it from there, summing share classes if multiple. profile.industryPE / industryForwardPE = approximate industry trailing/forward P/E (numeric, general knowledge, 0 if unknown). profile.forwardPE = approximate forward P/E for THIS company (numeric, 0 if unknown). profile.mdaKpis = 4-6 company-specific KPIs from MD&A, each {name, value (short string WITH units), sub (YoY/context)}. positioning scores 0-100 (cost: budget->premium, quality: low->high) for the company + main rivals. marketShareBreakdown approximate percents (viewer adds "All other"). marketShareMarkets = 2-6 share views across distinct markets/product groups (labels may be product groups or region views e.g. "Smartphones — Greater China"), each {market, entries:[{name,share}]} including the company; [] if unknown. fiveYearRevenue = last 5 fiscal years in the SAME units as the statements, each {year,revenue,netIncome}. narrative in your own words, never copied. Return only the JSON.'
+'Rules: balanceSheetNotes = for each balance sheet line that changed meaningfully plus "Assets"/"Liabilities"/"Equity" totals (AT MOST 14 notes, each 1-2 SHORT sentences) from the MD&A financial condition discussion; item must EXACTLY match the statement line label as printed in the filing. cashFlowNotes = same for cash flow line items plus "Operating"/"Investing"/"Financing"/"Net change in cash" (AT MOST 12 notes, each 1-2 SHORT sentences). profile.fiscalYearEnd = month 1-12. profile.marketCap = approximate short string (e.g. "~$3.4T"); your knowledge may be stale — the viewer recomputes live, this is only a fallback. profile.sharesOutstanding = REQUIRED short string (e.g. "15.4B"); every 10-K/10-Q states it on the COVER PAGE ("...shares outstanding as of...") — read it from there, summing share classes if multiple. profile.industryPE / industryForwardPE = approximate industry trailing/forward P/E (numeric, general knowledge, 0 if unknown). profile.forwardPE = approximate forward P/E for THIS company (numeric, 0 if unknown). profile.mdaKpis = 4-6 company-specific KPIs from MD&A, each {name, value (short string WITH units), sub (YoY/context)}. positioning scores 0-100 (cost: budget->premium, quality: low->high) for the company + main rivals. marketShareBreakdown approximate percents (viewer adds "All other"). marketShareMarkets = 2-6 share views across distinct markets/product groups (labels may be product groups or region views e.g. "Smartphones — Greater China"), each {market, entries:[{name,share}]} including the company; [] if unknown. fiveYearRevenue = last 5 fiscal years in the SAME units as the statements, each {year,revenue,netIncome}. narrative in your own words, never copied. Return only the JSON.'
 ].join('\n');
 
 async function sec(url, ua) {
@@ -41,7 +41,44 @@ async function sec(url, ua) {
   return r;
 }
 
-async function callClaude(system, userContent, maxTokens) {
+function tryParse(s) { try { return JSON.parse(s); } catch (_) { return null; } }
+
+// Close any unbalanced {/[ in a JSON fragment (assumes the fragment ends outside a string).
+function closeBrackets(s) {
+  const stack = [];
+  let inStr = false, esc = false;
+  for (const ch of s) {
+    if (esc) { esc = false; continue; }
+    if (inStr) {
+      if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{' || ch === '[') stack.push(ch);
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+  if (inStr) return null;
+  let out = s.replace(/,\s*$/, '');
+  while (stack.length) out += (stack.pop() === '{' ? '}' : ']');
+  return out;
+}
+
+// Repair JSON that was cut off mid-output: trim back to the last complete
+// element boundary, then close whatever structures remain open.
+function salvageJson(s) {
+  for (let end = s.length; end > 1; end--) {
+    const c = s[end - 1];
+    if (c !== '}' && c !== ']') continue;
+    const closed = closeBrackets(s.slice(0, end));
+    if (!closed) continue;
+    const p = tryParse(closed);
+    if (p) return p;
+  }
+  return null;
+}
+
+async function callClaude(label, system, userContent, maxTokens) {
   const ar = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -57,12 +94,16 @@ async function callClaude(system, userContent, maxTokens) {
     })
   });
   const aj = await ar.json();
-  if (aj.error) throw new Error('Anthropic: ' + (aj.error.message || JSON.stringify(aj.error)));
+  if (aj.error) throw new Error('Anthropic (' + label + '): ' + (aj.error.message || JSON.stringify(aj.error)));
   let out = (aj.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
   out = out.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
   const a = out.indexOf('{'), b = out.lastIndexOf('}');
   if (a >= 0 && b > a) out = out.slice(a, b + 1);
-  return JSON.parse(out);
+  else if (a >= 0) out = out.slice(a);
+  let parsed = tryParse(out);
+  if (!parsed) parsed = salvageJson(out);
+  if (!parsed) throw new Error('The ' + label + ' pass returned invalid JSON' + (aj.stop_reason === 'max_tokens' ? ' (hit the length limit)' : ''));
+  return parsed;
 }
 
 export default async function handler(req, res) {
@@ -121,8 +162,8 @@ export default async function handler(req, res) {
     // 4) structure with Claude — two passes IN PARALLEL (statements + commentary)
     const userContent = form + ' for ' + rec.title + ':\n\n' + text;
     const [stmts, comm] = await Promise.all([
-      callClaude(STATEMENTS_PROMPT, userContent, 4500),
-      callClaude(COMMENTARY_PROMPT, userContent, 4500)
+      callClaude('statements', STATEMENTS_PROMPT, userContent, 7000),
+      callClaude('commentary', COMMENTARY_PROMPT, userContent, 7000)
     ]);
     const model = Object.assign({}, stmts, comm);
     model.filingUrl = url;
