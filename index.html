@@ -133,6 +133,11 @@
   .mkt-card-label{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:600}
   .mkt-card-val{font-size:22px;font-weight:700;margin:4px 0 2px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
   .mkt-card-sub{font-size:12px;color:var(--ink-2)}
+  .mkt-card.mda::after{background:var(--dl-green)}
+  .cf-layout{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
+  .cf-layout.with-notes{grid-template-columns:1fr 290px}
+  @media(max-width:1000px){.cf-layout.with-notes{grid-template-columns:1fr}}
+  .cf-notes{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-top:12px;position:sticky;top:12px}
 </style>
 </head>
 <body>
@@ -154,6 +159,7 @@
         <option>FY2017</option><option>FY2016</option><option>FY2015</option>
       </select>
       <button class="b b-primary" id="fetchBtn">Fetch &amp; structure</button>
+      <button class="b b-ghost" id="exampleBtn">Load example</button>
     </div>
     <div class="view-toggle" id="viewToggle">
       <button class="vtbtn active" data-mode="ttm">Annual / TTM</button>
@@ -170,7 +176,7 @@
     <button data-tab="compare">Compare</button>
   </nav>
 </header>
-<div class="drawer collapsed" id="drawer">
+<div class="drawer collapsed" id="drawer" style="display:none">
   <div class="drawer-head" id="drawerHead">
     <div class="dot"></div>
     <h2>Source &amp; figures</h2>
@@ -187,17 +193,16 @@
         <button class="b b-ghost" id="fileBtn">Load .htm / .txt</button>
         <button class="b b-ghost" id="importBtn">Import data (JSON)</button>
         <button class="b b-ghost" id="exportBtn">Export data (JSON)</button>
-        <button class="b b-ghost" id="exampleBtn">Load example</button>
         <input type="file" id="fileInput" accept=".txt,.htm,.html,.text"/>
         <input type="file" id="jsonInput" accept=".json,application/json"/>
       </div>
       <div class="hint">SEC EDGAR serves 10-Ks as <code>.htm</code> — download, load, then structure. Two fiscal years are extracted so growth, turns, and the year-over-year story have a basis.</div>
-      <div class="status" id="status"></div>
     </div>
     <div><div id="editor"></div></div>
   </div>
 </div>
 <main>
+  <div class="status" id="status" style="margin:0 0 14px"></div>
   <section class="tabpanel active" data-panel="company" id="companyPanel"></section>
   <section class="tabpanel" data-panel="overview" id="ovPanel"></section>
   <section class="tabpanel" data-panel="pnl">
@@ -258,13 +263,25 @@
     <div class="kpis" id="cfKpis"></div>
     <div class="chips" id="cfModes"></div>
     <div class="warn" id="cfWarn"></div>
-    <div class="chartcard"><svg class="viz" id="cfChart" viewBox="0 0 1160 610" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div class="cf-layout" id="cfLayout">
+      <div class="chartcard"><svg class="viz" id="cfChart" viewBox="0 0 1160 610" preserveAspectRatio="xMidYMid meet"></svg></div>
+      <div class="cf-notes" id="cfNotes" style="display:none">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px">
+          <span id="cfNoteTitle" style="font-size:14px;font-weight:700"></span>
+          <button onclick="hideCfNote()" style="background:none;border:1px solid var(--line);border-radius:6px;padding:2px 9px;font-size:11px;cursor:pointer;color:var(--ink-2);font-family:inherit;flex-shrink:0">✕</button>
+        </div>
+        <div id="cfNoteVal" style="margin-bottom:10px;font-size:18px;font-variant-numeric:tabular-nums"></div>
+        <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:600;margin-bottom:4px">MD&amp;A commentary</div>
+        <div id="cfNoteBody" style="font-size:13.5px;line-height:1.55"></div>
+      </div>
+    </div>
     <div class="legend">
       <span><i style="background:#86BC25"></i>Cash in</span><span><i style="background:#C0392B"></i>Cash out</span><span><i style="background:#5b5b5b"></i>Activity subtotal</span><span><i style="background:#4E7D1C"></i>Net change</span>
+      <span style="margin-left:12px;font-size:11px;color:#999">Click any bar for the MD&amp;A driver commentary</span>
     </div>
   </section>
   <section class="tabpanel" data-panel="compare" id="comparePanel"></section>
-  <div class="foot">All views are derived from the figures in the drawer, so they always balance. Built for working analysis — verify against the audited filing before relying on it.</div>
+  <div class="foot">All views are derived from the structured filing figures, so they always balance. Built for working analysis — verify against the audited filing before relying on it.</div>
 </main>
 <script>
 const BLUE=['#00A3E0','#005587','#3FC3EC','#0E7BAA','#A0DCFF','#1B6CA8','#62C4E8'];
@@ -284,11 +301,12 @@ const model={
   bsPriorDetail:{currentAssets:[],nonCurrentAssets:[],currentLiabilities:[],nonCurrentLiabilities:[],equity:[]},
   cf:{operating:[],investing:[],financing:[],fxEffect:0,beginningCash:0,endingCash:0,reportedNetChange:null},
   cfPrior:{netChange:0},
+  cfNotes:[],
   dimCash:{metric:'',bySegment:[],byGeography:[]},
   profile:null,
   narrative:null
 };
-const state={tab:'company',pnlMode:'consolidated',cfMode:'consolidated',viewMode:'ttm',stockRange:'1y'};
+const state={tab:'company',pnlMode:'consolidated',cfMode:'consolidated',viewMode:'ttm',stockRange:'1y',shareMarket:0,mockStock:false};
 /* Leave '' to run as-is (paste / import). When you deploy as a real site,
    set this to your serverless function base, e.g. '/api' — that turns the
    "Fetch & structure" button into a live SEC EDGAR pull. */
@@ -366,6 +384,7 @@ function adopt(p){
     fxEffect:num(C.fxEffect),beginningCash:num(C.beginningCash),endingCash:num(C.endingCash),
     reportedNetChange:C.netChange==null?null:num(C.netChange)};
   model.cfPrior={netChange:num((p.cashFlowPrior||{}).netChange)};
+  model.cfNotes=(p.cashFlowNotes||[]).map(x=>({item:x.item?String(x.item):'',note:x.note?String(x.note):''})).filter(x=>x.item&&x.note);
   const dc=p.dimensionalCash||{};
   model.dimCash={metric:dc.metric||'',bySegment:(dc.bySegment||[]).map(x=>({name:x.name||'',value:num(x.value)})),byGeography:(dc.byGeography||[]).map(x=>({name:x.name||'',value:num(x.value)}))};
   const pf=p.profile;
@@ -375,7 +394,9 @@ function adopt(p){
       channels:toNamed(pf.channels),competitors:toNamed(pf.competitors),differentiation:toNamed(pf.differentiation),
       positioning:(pf.positioning||[]).map(x=>({name:x.name||'',cost:num(x.cost),quality:num(x.quality)})).filter(x=>x.name),
       marketShareBreakdown:(pf.marketShareBreakdown||[]).map(x=>({name:x.name||'',share:num(x.share)})).filter(x=>x.name),
+      marketShareMarkets:(pf.marketShareMarkets||[]).map(m=>({market:m.market?String(m.market):'',entries:(m.entries||[]).map(x=>({name:x.name||'',share:num(x.share)})).filter(x=>x.name&&x.share>0)})).filter(m=>m.market&&m.entries.length),
       marketCap:pf.marketCap||'',sharesOutstanding:pf.sharesOutstanding||'',fiscalYearEnd:num(pf.fiscalYearEnd)||0,industryPE:num(pf.industryPE)||0,industryForwardPE:num(pf.industryForwardPE)||0,
+      mdaKpis:(pf.mdaKpis||[]).map(x=>({name:x.name?String(x.name):'',value:x.value!=null?String(x.value):'',sub:x.sub?String(x.sub):''})).filter(x=>x.name&&x.value),
       fiveYearRevenue:(pf.fiveYearRevenue||[]).map(x=>({year:String(x.year||''),revenue:num(x.revenue),netIncome:x.netIncome!=null?num(x.netIncome):null}))};
   } else model.profile=null;
   model.filingUrl=p.filingUrl||'';
@@ -395,8 +416,9 @@ const SYS=[
 '"balanceSheetPriorDetail":{"currentAssets":[{"name":"","value":0}],"nonCurrentAssets":[{"name":"","value":0}],"currentLiabilities":[{"name":"","value":0}],"nonCurrentLiabilities":[{"name":"","value":0}],"equity":[{"name":"","value":0}]},',
 '"cashFlow":{"operating":[{"name":"","value":0}],"investing":[{"name":"","value":0}],"financing":[{"name":"","value":0}],"fxEffect":0,"beginningCash":0,"endingCash":0,"netChange":0},',
 '"cashFlowPrior":{"netChange":0},',
+'"cashFlowNotes":[{"item":"","note":""}],',
 '"dimensionalCash":{"metric":"","bySegment":[{"name":"","value":0}],"byGeography":[{"name":"","value":0}]},',
-'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","marketCap":"","sharesOutstanding":"","fiscalYearEnd":0,"industryPE":0,"industryForwardPE":0,"positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0,"netIncome":0}]},',
+'"profile":{"description":"","sector":"","industry":"","headquarters":"","founded":"","employees":"","ticker":"","exchange":"","businessModel":"","segmentation":"","channels":[""],"competitors":[""],"marketPosition":"","marketShare":"","marketCap":"","sharesOutstanding":"","fiscalYearEnd":0,"industryPE":0,"industryForwardPE":0,"mdaKpis":[{"name":"","value":"","sub":""}],"positioning":[{"name":"","cost":0,"quality":0}],"marketShareBreakdown":[{"name":"","share":0}],"marketShareMarkets":[{"market":"","entries":[{"name":"","share":0}]}],"differentiation":[""],"fiveYearRevenue":[{"year":"","revenue":0,"netIncome":0}]},',
 '"narrative":{"headline":"","summary":"","findings":[""],"outlook":[""],"risks":[""],"capitalAllocation":[""]}}',
 'Rules:',
 '- period = most recent fiscal year; priorPeriod = the year before. Use the most recent year for all current figures.',
@@ -406,15 +428,18 @@ const SYS=[
 '- balanceSheet line items POSITIVE, split into the four groups + equity, using the filing line labels (include Accounts receivable and Accounts payable by those names).',
 '- balanceSheetPriorDetail: same structure as balanceSheet but for the prior comparable period. Match line names to balanceSheet exactly where possible. Fill with empty arrays if prior BS line items are not available.',
 '- cashFlow items SIGNED (inflow +, outflow -), grouped operating/investing/financing; include D&A, working capital and main drivers; netChange = reported net increase/(decrease) in cash.',
+'- cashFlowNotes = for each major cashFlow line item AND each activity total ("Operating","Investing","Financing","Net change in cash"), 1-2 sentences from the MD&A liquidity & capital resources discussion explaining what drove it. item must EXACTLY match the cashFlow line name. Omit items with nothing meaningful to say; [] if MD&A not available.',
 '- dimensionalCash: ONLY if the filing discloses a cash metric by segment or geography (commonly capital expenditures). Set metric to its name; else metric "" and arrays [].',
 '- profile: from Item 1 Business and the competition discussion. description = 2-3 sentences on what the company does. businessModel = how it makes money. segmentation = how it organizes/reports its business. channels = go-to-market channels. competitors = up to 6 named rivals. differentiation = 3-5 short points on its edge/moat. marketPosition = leader/challenger/niche + one line. marketShare = a short estimate string (you may use general knowledge; frame as approximate). fiveYearRevenue = the last 5 fiscal years of total revenue in the same units (use the filing if present, otherwise your best knowledge), each {year,revenue}. Fill founded/headquarters/employees/ticker/exchange/sector/industry where known.',
 '- profile.positioning = the company PLUS its main competitors (4-6 total, include the company by its common name), each scored cost 0-100 (0=budget/low price, 100=premium/high price) and quality 0-100 (0=low, 100=high). Estimates from general knowledge are fine.',
 '- profile.marketShareBreakdown = approximate market share percent for the company and its top competitors in its core market (include the company itself; 3-6 entries). The viewer adds an "All other" remainder automatically, so they need not sum to 100.',
+'- profile.marketShareMarkets = OPTIONAL but encouraged: 2-6 share views across the distinct markets/product groups the company competes in, each {market: short label, entries:[{name,share}]}. Labels may be product groups ("Tablets — global units") or region-specific views ("Smartphones — Greater China"). Include the company in every view. Approximate percents from general knowledge are fine. [] if you cannot estimate.',
 '- profile.fiscalYearEnd = month number 1-12 when the fiscal year ends (e.g. 9 for September, 12 for December).',
 '- profile.marketCap = approximate market cap as a short string (e.g. "~$3.4T", "~$280B"). Use general knowledge; mark as approximate.',
 '- profile.sharesOutstanding = shares outstanding as a short formatted string (e.g. "15.4B", "~2.3B"). Use the filing or general knowledge.',
 '- profile.industryPE = approximate trailing P/E for the company\'s industry peer group (numeric, e.g. 25). Use general knowledge. 0 if unknown.',
 '- profile.industryForwardPE = approximate forward P/E for the industry peer group (numeric). 0 if unknown.',
+'- profile.mdaKpis = 4-6 key performance indicators SPECIFIC to this company, drawn from the MD&A discussion (e.g. installed base, ARPU, same-store sales, backlog, RPO, daily active users, segment gross margins, net adds). Each {name, value, sub}: name short; value a short string WITH units (e.g. "2.35B devices", "75.2%", "$108.5B"); sub = YoY change or one-line context.',
 '- fiveYearRevenue items: include netIncome = reported net income for that year in the same units (0 if unknown).',
 '- narrative: YOUR OWN concise analysis in your own words (never copy sentences from the filing). headline ~10 words; summary 2-3 sentences; findings 4-6 short points; outlook 2-4; risks 2-4; capitalAllocation 2-3 or [].',
 '- productCategories: ONLY if the filing explicitly discloses revenue by product line/category (e.g. iPhone/Mac/iPad/Services for Apple; Cloud/Productivity/More Personal Computing for Microsoft). Do NOT duplicate what is already in segments or geographies. Return [] if not separately disclosed.',
@@ -447,12 +472,12 @@ async function runStructuring(userContent,useSearch,btn){
     const a=t.indexOf('{'),b=t.lastIndexOf('}');if(a>=0&&b>a)t=t.slice(a,b+1);
     let parsed;try{parsed=JSON.parse(t);}catch(pe){throw new Error('the response was not valid JSON'+(data.stop_reason==='max_tokens'?' (hit the length limit)':''));}
     adopt(parsed);
-    state.pnlMode='consolidated';state.cfMode='consolidated';
+    state.pnlMode='consolidated';state.cfMode='consolidated';state.mockStock=false;state.shareMarket=0;
     const _formType=$('#reportType').value.replace('-other','');
     state.viewMode=_formType==='10-Q'?'quarterly':'ttm';syncViewToggle();
     buildEditor();renderAll();
     if(!hasData()){setStatus('No usable figures came back — the filing may not have been found. Try the ticker (e.g. GOOGL), add a specific period, or paste the statements below.','err');return;}
-    setStatus('Structured '+model.company+(model.period?' · '+model.period:'')+'. Review the figures in the drawer, then explore each tab.'+(useSearch?' Retrieved figures are best-effort — verify against the filing.':''),'ok');
+    setStatus('Structured '+model.company+(model.period?' · '+model.period:'')+'. Explore each tab.'+(useSearch?' Retrieved figures are best-effort — verify against the filing.':''),'ok');
   }catch(e){
     setStatus('Could not complete: '+e.message+'. '+(useSearch?'In-app EDGAR fetch may be unavailable in this environment — ask Claude in chat for the company, then use "Import data (JSON)", or paste the filing below.':'If this file is open outside Claude, AI structuring is unavailable — enter figures in the drawer; every view still works.'),'err');
   }finally{btn.disabled=false;btn.textContent=old;}
@@ -486,12 +511,12 @@ async function fetchViaBackend(co,rt,period){
     const u=BACKEND_URL.replace(/\/$/,'')+'/fetch-filing?ticker='+encodeURIComponent(co)+'&form='+encodeURIComponent(rt)+'&period='+encodeURIComponent(period);
     const r=await fetch(u);const data=await r.json();
     if(!r.ok||data.error)throw new Error(data.error||('HTTP '+r.status));
-    adopt(data);state.pnlMode='consolidated';state.cfMode='consolidated';
+    adopt(data);state.pnlMode='consolidated';state.cfMode='consolidated';state.mockStock=false;state.shareMarket=0;
     state.viewMode=rt==='10-Q'?'quarterly':'ttm';syncViewToggle();
     buildEditor();renderAll();
     if(!hasData()){setStatus('No usable figures returned for that company/period — try a ticker or a specific period.','err');return;}
     setStatus('Loaded '+model.company+(model.period?' · '+model.period:'')+' from EDGAR. Figures are extracted from the filing — verify against the source.','ok');
-  }catch(e){setStatus('Fetch failed: '+e.message+'. Check the backend URL and its logs, or paste the filing below.','err');}
+  }catch(e){setStatus('Fetch failed: '+e.message+'. Check the backend logs, or try a different ticker/period.','err');}
   finally{btn.disabled=false;btn.textContent=old;}
 }
 function loadExample(){
@@ -519,6 +544,21 @@ function loadExample(){
       financing:[{name:'Dividends paid',value:-15421},{name:'Share repurchases',value:-90711},{name:'Net debt repayment',value:-8700},{name:'Taxes / other financing',value:-5854}],
       fxEffect:0,beginningCash:29943,endingCash:35934,netChange:5991},
     cashFlowPrior:{netChange:-795},
+    cashFlowNotes:[
+      {item:'Net income',note:'Net income rose ~20% to $112.0B and was the primary driver of operating cash generation; the prior year had absorbed a one-time European tax charge that depressed reported earnings.'},
+      {item:'Depreciation & amortization',note:'D&A of $11.9B was roughly flat year over year, with growing data-center and tooling investment offset by device program rolloffs.'},
+      {item:'Share-based compensation',note:'Share-based compensation of $12.9B continued to grow modestly with headcount and the mix shift toward engineering roles.'},
+      {item:'Working capital & other',note:'Working capital and other items were a ~$25B use of cash, driven by higher accounts receivable and vendor non-trade receivables on strong September-quarter sell-through, plus the timing of income tax payments.'},
+      {item:'Capital expenditures',note:'Capex of $12.7B rose year over year, reflecting investment in Apple silicon capacity, AI/data-center infrastructure, and retail.'},
+      {item:'Marketable securities, net',note:'Net maturities and sales of marketable securities provided ~$29B as the portfolio was drawn down to fund shareholder returns, consistent with the net-cash-neutral objective.'},
+      {item:'Dividends paid',note:'Dividends of $15.4B were paid, with the quarterly dividend raised ~4% in May 2025.'},
+      {item:'Share repurchases',note:'Apple repurchased $90.7B of common stock during the year under board authorizations, including the $100B program announced in May 2025.'},
+      {item:'Net debt repayment',note:'Term-debt maturities exceeded new issuance and commercial paper declined, for a net debt reduction during the year.'},
+      {item:'Taxes / other financing',note:'Primarily taxes paid in lieu of shares upon vesting of restricted stock units.'},
+      {item:'Operating',note:'Operating cash flow of $111.5B was driven by record net income and non-cash addbacks, partially offset by a working-capital build.'},
+      {item:'Investing',note:'Investing was a net source of cash: securities maturities more than funded capex, as the investment portfolio winds down toward net-cash-neutral.'},
+      {item:'Financing',note:'Financing outflows of $120.7B reflect the policy of returning essentially all free cash flow to shareholders via buybacks and dividends.'},
+      {item:'Net change in cash',note:'Cash and equivalents ended the year at $35.9B, up $6.0B, with the balance-sheet draw-down of investments funding capital returns.'}],
     dimensionalCash:{metric:'',bySegment:[],byGeography:[]},
     profile:{description:'Apple designs, manufactures, and markets consumer electronics — iPhone, Mac, iPad, and wearables — and sells a fast-growing portfolio of services including the App Store, advertising, cloud, payments, and subscriptions. Hardware anchors a large, loyal installed base that Apple increasingly monetizes through software and services.',
       sector:'Technology',industry:'Consumer Electronics & Digital Services',headquarters:'Cupertino, California',founded:'1976',employees:'~166,000',ticker:'AAPL',exchange:'NASDAQ',
@@ -530,8 +570,16 @@ function loadExample(){
       marketShare:'~18-20% of global smartphone units (majority of industry profit pool); leading share in tablets and smartwatches.',
       positioning:[{name:'Apple',cost:90,quality:92},{name:'Samsung',cost:66,quality:82},{name:'Google Pixel',cost:60,quality:80},{name:'Xiaomi',cost:34,quality:66},{name:'Huawei',cost:56,quality:78}],
       marketShareBreakdown:[{name:'Apple',share:18},{name:'Samsung',share:19},{name:'Xiaomi',share:12},{name:'Oppo',share:8},{name:'Vivo',share:7}],
+      marketShareMarkets:[
+        {market:'Smartphones — global units',entries:[{name:'Apple',share:18},{name:'Samsung',share:19},{name:'Xiaomi',share:14},{name:'Oppo',share:8},{name:'Vivo',share:8}]},
+        {market:'Smartphones — U.S. units',entries:[{name:'Apple',share:56},{name:'Samsung',share:24},{name:'Motorola',share:9},{name:'Google',share:5}]},
+        {market:'Smartphones — Greater China units',entries:[{name:'Apple',share:15},{name:'Vivo',share:17},{name:'Huawei',share:17},{name:'Xiaomi',share:16},{name:'Oppo',share:14}]},
+        {market:'Tablets — global units',entries:[{name:'Apple',share:33},{name:'Samsung',share:18},{name:'Lenovo',share:8},{name:'Huawei',share:8}]},
+        {market:'Smartwatches — global units',entries:[{name:'Apple',share:21},{name:'Huawei',share:12},{name:'Samsung',share:9},{name:'Garmin',share:6}]},
+        {market:'Personal computers — global units',entries:[{name:'Apple',share:9},{name:'Lenovo',share:25},{name:'HP',share:20},{name:'Dell',share:15}]}],
       differentiation:[{name:'Tight hardware–software–services integration and silicon (Apple-designed chips)'},{name:'Brand strength and pricing power at the premium tier'},{name:'2.35B+ active-device installed base driving recurring services'},{name:'Privacy positioning and ecosystem switching costs'}],
       marketCap:'~$4.0T',sharesOutstanding:'~14.8B',fiscalYearEnd:9,industryPE:28,industryForwardPE:24,
+      mdaKpis:[{name:'Services revenue',value:'$108.5B',sub:'+13% YoY · all-time high'},{name:'Products gross margin',value:'~36%',sub:'Mix + input-cost discipline'},{name:'Services gross margin',value:'~75%',sub:'Roughly 2× products margin'},{name:'Installed base',value:'2.35B+ devices',sub:'All-time high across categories'},{name:'Effective tax rate',value:'15.6%',sub:'vs 24.1% in FY2024 (one-time charge)'},{name:'Capital returned',value:'~$106B',sub:'$90.7B buybacks + $15.4B dividends'}],
       fiveYearRevenue:[{year:'FY2021',revenue:365817,netIncome:94680},{year:'FY2022',revenue:394328,netIncome:99803},{year:'FY2023',revenue:383285,netIncome:96995},{year:'FY2024',revenue:391035,netIncome:93736},{year:'FY2025',revenue:416161,netIncome:112010}]},
     narrative:{headline:'Record revenue and profit as Services momentum offsets a maturing hardware cycle',
       summary:'Revenue set a new all-time high on iPhone strength and double-digit Services growth, and gross margin held near record levels on a richer mix. Net income rebounded sharply against a prior year that absorbed a one-time European tax charge. Cash generation stayed exceptional and was returned to shareholders largely through buybacks and dividends.',
@@ -539,7 +587,7 @@ function loadExample(){
       outlook:['Services and installed-base monetization remain the primary growth lever','AI-driven device refresh could re-accelerate product revenue','Capital return program likely continues to absorb most free cash flow'],
       risks:['Demand sensitivity in Greater China and broader geographic concentration','Regulatory pressure on App Store economics and platform fees','Tariff and supply-chain concentration exposure'],
       capitalAllocation:['~$91B share repurchases','~$15B dividends','Modest net debt reduction']}});
-  state.pnlMode='consolidated';state.cfMode='consolidated';
+  state.pnlMode='consolidated';state.cfMode='consolidated';state.mockStock=true;state.shareMarket=0;
   buildEditor();renderAll();$('#src').value='';
   setStatus('Loaded an illustrative Apple FY2025 two-year dataset. Consolidated figures track the filings; some line items and the narrative are simplified for the demo.','ok');
 }
@@ -607,8 +655,11 @@ function renderSankey(){
     .append('title').text(d=>d.name+'\n'+fmt(d.value)+' ('+pctRev(d.value)+')');
   node.append('text').attr('x',d=>d.x0<W/2?d.x1+9:d.x0-9).attr('y',d=>(d.y0+d.y1)/2).attr('dy','-0.1em')
     .attr('text-anchor',d=>d.x0<W/2?'start':'end').attr('font-size',13).attr('font-weight',600).attr('fill','#282728')
-    .each(function(d){const left=d.x0<W/2;const t=d3.select(this);t.append('tspan').text(d.name);
-      t.append('tspan').attr('x',left?d.x1+9:d.x0-9).attr('dy','1.25em').attr('font-weight',400).attr('font-size',12).attr('fill','#555').text(fmt(d.value));});
+    .each(function(d){const left=d.x0<W/2;const t=d3.select(this);const hh=d.y1-d.y0;
+      if(hh>=26){t.append('tspan').text(d.name);
+        t.append('tspan').attr('x',left?d.x1+9:d.x0-9).attr('dy','1.25em').attr('font-weight',400).attr('font-size',12).attr('fill','#555').text(fmt(d.value));}
+      else{t.attr('font-size',11).attr('dy','.32em');t.append('tspan').text(d.name+' ');
+        t.append('tspan').attr('font-weight',400).attr('fill','#555').text(fmt(d.value));}});
 }
 const MODE_LABEL={consolidated:'Consolidated',segment:'By segment',geography:'By geography',product:'By product',channel:'By channel',segmentpnl:'Segment P&L'};
 function pnlModeAvail(){return{consolidated:true,segment:model.segments.length>0,geography:model.geographies.length>0,
@@ -670,9 +721,15 @@ function renderTreemap(){
     g.append('rect').attr('x',cn.x0).attr('y',cn.y0).attr('width',cn.x1-cn.x0).attr('height',cn.y1-cn.y0)
       .attr('fill','none').attr('stroke',col).attr('stroke-width',1.5).attr('rx',5).style('cursor','pointer')
       .on('click',()=>showBsItemDetail(cn.data.name,cn.data.cat));
-    g.append('text').attr('x',cn.x0+8).attr('y',cn.y0+14).attr('font-size',12).attr('font-weight',700).attr('fill',col)
-      .attr('pointer-events','none').text(cn.data.name+' · '+fmt(catTotal));
-    (cn.children||[]).forEach(sn=>{if(sn.children)g.append('text').attr('x',sn.x0+5).attr('y',sn.y0+11).attr('font-size',9.5).attr('font-weight',600).attr('fill','#777').attr('pointer-events','none').text(sn.data.name);});
+    const cw_=cn.x1-cn.x0;let cl=cn.data.name+' · '+fmt(catTotal);
+    if(cl.length*7>cw_-14)cl=cn.data.name;
+    if(cl.length*7>cw_-14)cl='';
+    if(cl)g.append('text').attr('x',cn.x0+8).attr('y',cn.y0+14).attr('font-size',12).attr('font-weight',700).attr('fill',col)
+      .attr('pointer-events','none').text(cl);
+    (cn.children||[]).forEach(sn=>{if(sn.children){const sw=sn.x1-sn.x0;let sl=sn.data.name;
+      if(sl.length*5.5>sw-8)sl=sl.split(' ')[0];
+      if(sl.length*5.5>sw-8)return;
+      g.append('text').attr('x',sn.x0+5).attr('y',sn.y0+11).attr('font-size',9.5).attr('font-weight',600).attr('fill','#777').attr('pointer-events','none').text(sl);}});
   });
   const leaf=g.selectAll('g.leaf').data(root.leaves()).join('g').attr('transform',d=>'translate('+d.x0+','+d.y0+')')
     .style('cursor','pointer').on('click',(_,d)=>showBsItemDetail(d.data.name,d.data.cat));
@@ -807,13 +864,38 @@ function renderWaterfall(){
     const top=b.type==='delta'?Math.max(b.y0,b.y1):Math.max(0,b.value),bot=b.type==='delta'?Math.min(b.y0,b.y1):Math.min(0,b.value);
     const col=b.type==='sub'?'#5b5b5b':b.type==='total'?'#4E7D1C':(b.value>=0?'#86BC25':'#C0392B');
     g.append('rect').attr('x',x(i)).attr('y',y(top)).attr('width',bw).attr('height',Math.max(1.5,y(bot)-y(top))).attr('fill',col).attr('rx',2).attr('opacity',b.type==='delta'?.95:1)
-      .append('title').text(b.label+'\n'+fmt(b.value)+(model.pnl.revenue>0?' ('+(b.value/model.pnl.revenue*100).toFixed(1)+'% of rev)':''));
-    g.append('text').attr('x',x(i)+bw/2).attr('y',y(top)-5).attr('text-anchor','middle').attr('font-size',10.5).attr('font-weight',600).attr('fill',b.value<0?'#b0392b':'#3c7a12').text((b.value>=0?'+':'')+fmt(b.value));
+      .style('cursor','pointer').on('click',()=>showCfNote(b))
+      .append('title').text(b.label+'\n'+fmt(b.value)+(model.pnl.revenue>0?' ('+(b.value/model.pnl.revenue*100).toFixed(1)+'% of rev)':'')+' — click for MD&A commentary');
+    const stag=bars.length>9&&(i%2===1)?11:0;
+    g.append('text').attr('x',x(i)+bw/2).attr('y',y(top)-5-stag).attr('text-anchor','middle').attr('font-size',bars.length>12?9:10).attr('font-weight',600).attr('fill',b.value<0?'#b0392b':'#3c7a12').text((b.value>=0?'+':'')+fmt(b.value));
     g.append('text').attr('transform','translate('+(x(i)+bw/2)+','+(H-mB+10)+') rotate(-65)').attr('text-anchor','end').attr('font-size',7.5).attr('font-weight',b.type==='delta'?400:700).attr('fill','#444').text(b.label)
       .append('title').text(b.label);
   });
 }
+function findCfNote(label,group){
+  const ns=model.cfNotes||[];const l=(label||'').toLowerCase();
+  let n=ns.find(x=>x.item.toLowerCase()===l);
+  if(!n)n=ns.find(x=>l.includes(x.item.toLowerCase())||x.item.toLowerCase().includes(l));
+  if(!n&&group)n=ns.find(x=>x.item.toLowerCase()===group.toLowerCase());
+  return n?n.note:null;
+}
+function showCfNote(bar){
+  const panel=$('#cfNotes'),lay=$('#cfLayout');if(!panel)return;
+  panel.style.display='';if(lay)lay.classList.add('with-notes');
+  $('#cfNoteTitle').textContent=bar.label;
+  const pct=model.pnl.revenue>0?' · '+(Math.abs(bar.value)/model.pnl.revenue*100).toFixed(1)+'% of revenue':'';
+  $('#cfNoteVal').innerHTML='<span style="font-weight:700;color:'+(bar.value>=0?'#3c7a12':'#b0392b')+'">'+(bar.value>=0?'+':'')+fmt(bar.value)+'</span><span style="color:var(--ink-2);font-size:12px">'+pct+'</span>';
+  const note=findCfNote(bar.label,bar.group);
+  const body=$('#cfNoteBody');
+  if(note){body.textContent=note;body.style.color='';}
+  else{body.textContent='No MD&A commentary captured for this line. Structure a fresh filing to pull the liquidity & capital resources discussion from the MD&A.';body.style.color='var(--ink-2)';}
+}
+function hideCfNote(){
+  const panel=$('#cfNotes'),lay=$('#cfLayout');
+  if(panel)panel.style.display='none';if(lay)lay.classList.remove('with-notes');
+}
 function renderCfDimension(){
+  hideCfNote();
   const svg=d3.select('#cfChart');svg.selectAll('*').remove();
   const arr=state.cfMode==='segment'?model.dimCash.bySegment:model.dimCash.byGeography;
   const W=1160,H=480,mL=180,mR=90,mT=50,mB=30;svg.attr('viewBox','0 0 '+W+' '+H);
@@ -891,8 +973,11 @@ function drawFiveYear(series){
     const niSeries=series.filter(d=>d.netIncome!=null);
     svg.append('path').datum(niSeries).attr('fill','none').attr('stroke','#005587').attr('stroke-width',2.5).attr('stroke-linejoin','round').attr('d',lineGen);
     niSeries.filter(d=>d.netIncome!==0).forEach(d=>{
-      svg.append('circle').attr('cx',x(d.year)+x.bandwidth()/2).attr('cy',yNI(d.netIncome)).attr('r',4.5).attr('fill','#005587').attr('stroke','#fff').attr('stroke-width',1.5);
-      svg.append('text').attr('x',x(d.year)+x.bandwidth()/2).attr('y',yNI(d.netIncome)-9).attr('text-anchor','middle').attr('font-size',10).attr('fill','#005587').text(fmt(d.netIncome));});
+      const cx=x(d.year)+x.bandwidth()/2,cyNI=yNI(d.netIncome);
+      svg.append('circle').attr('cx',cx).attr('cy',cyNI).attr('r',4.5).attr('fill','#005587').attr('stroke','#fff').attr('stroke-width',1.5);
+      const revLabelY=y(d.revenue)-5;
+      const below=Math.abs((cyNI-9)-revLabelY)<13;
+      svg.append('text').attr('x',cx).attr('y',below?cyNI+17:cyNI-9).attr('text-anchor','middle').attr('font-size',10).attr('fill','#005587').text(fmt(d.netIncome));});
     svg.append('text').attr('x',W-mR+8).attr('y',mT-10).attr('font-size',10).attr('font-weight',700).attr('fill','#005587').text('Net income →');
   }
   svg.append('text').attr('x',mL).attr('y',mT-10).attr('font-size',10).attr('font-weight',700).attr('fill','#3c5e12').text('← Revenue');
@@ -909,16 +994,25 @@ function drawPositioning(){
   svg.append('line').attr('x1',m).attr('x2',W-m).attr('y1',y(50)).attr('y2',y(50)).attr('stroke','#e0e0e0').attr('stroke-dasharray','3,3');
   svg.append('text').attr('x',W/2).attr('y',H-14).attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600).attr('fill','#777').text('Lower price  \u2192  Premium');
   svg.append('text').attr('transform','translate(16,'+(H-m+20)/2+') rotate(-90)').attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600).attr('fill','#777').text('Lower quality  \u2192  Higher quality');
-  let bi=0;
+  let bi=0;const placed=[];
   pts.forEach(p=>{const co=isSubject(p.name);const fill=co?'#86BC25':BLUE[bi++%BLUE.length];
     svg.append('circle').attr('cx',x(p.cost)).attr('cy',y(p.quality)).attr('r',co?9:7).attr('fill',fill).attr('stroke',co?'#3c5e12':'#fff').attr('stroke-width',co?2.5:1.5)
       .append('title').text(p.name+'\nprice '+p.cost+'/100, quality '+p.quality+'/100');
-    svg.append('text').attr('x',x(p.cost)+(p.cost>80?-11:11)).attr('y',y(p.quality)+4).attr('text-anchor',p.cost>80?'end':'start')
+    const lx=x(p.cost)+(p.cost>80?-11:11);let ly=y(p.quality)+4;
+    placed.forEach(q=>{if(Math.abs(q.lx-lx)<150&&Math.abs(q.ly-ly)<15)ly=q.ly+15;});
+    placed.push({lx,ly});
+    svg.append('text').attr('x',lx).attr('y',ly).attr('text-anchor',p.cost>80?'end':'start')
       .attr('font-size',12).attr('font-weight',co?700:600).attr('fill',co?'#3c5e12':'#444').text(p.name);});
 }
+function shareMarkets(){return ((model.profile||{}).marketShareMarkets||[]).filter(m=>m.market&&m.entries&&m.entries.length);}
+function setShareMarket(i){state.shareMarket=i;drawPie();}
 function drawPie(){
   const svg=d3.select('#shareChart');if(svg.empty())return;svg.selectAll('*').remove();
-  let data=(model.profile.marketShareBreakdown||[]).filter(d=>d.name&&num(d.share)>0).map(d=>({name:d.name,share:num(d.share)}));
+  const mkts=shareMarkets();
+  let src;
+  if(mkts.length){state.shareMarket=Math.min(state.shareMarket||0,mkts.length-1);src=mkts[state.shareMarket].entries;}
+  else src=(model.profile.marketShareBreakdown||[]);
+  let data=src.filter(d=>d.name&&num(d.share)>0).map(d=>({name:d.name,share:num(d.share)}));
   if(!data.length)return;
   const sum=data.reduce((a,d)=>a+d.share,0);
   if(sum<99.5){const rem=100-sum;if(rem>0.5)data=data.concat([{name:'All other',share:rem,other:true}]);}
@@ -966,10 +1060,47 @@ function drawFiscalCalendar(fye,targetId){
     svg.append('text').attr('x',x+cw/2).attr('y',H-2).attr('text-anchor','middle').attr('font-size',8.5)
       .attr('font-weight',isFYEnd?700:400).attr('fill',isFYEnd?'#9B2D22':'#333').text(label);
   }
+  const DAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
   for(let q=0;q<4;q++){
     const x=mL+(q*3+1.5)*cw;
-    svg.append('text').attr('x',x).attr('y',mT-4).attr('text-anchor','middle').attr('font-size',9).attr('font-weight',700).attr('fill','#555').attr('letter-spacing','.05em').text('Q'+(q+1));
+    const mIdxEnd=(startM+q*3+2)%12;
+    const yrEnd=startCalYear?(startCalYear+(mIdxEnd<startM?1:0)):null;
+    const dateStr=MONTHS[mIdxEnd]+' '+DAYS[mIdxEnd]+(yrEnd?", '"+String(yrEnd).slice(2):'');
+    svg.append('text').attr('x',x).attr('y',mT-4).attr('text-anchor','middle').attr('font-size',8.5).attr('font-weight',700).attr('fill',q===3?'#9B2D22':'#555').attr('letter-spacing','.02em').text('Q'+(q+1)+' · ends '+dateStr);
   }
+}
+/* Mock stock data for the example dataset — frozen as of Apple's FY2025 end (Sep 26, 2025). */
+const MOCK_STOCK={asOf:'Sep 26, 2025',price:255.46,trailingPE:33.8,forwardPE:30.2,
+  ranges:{
+    '1d':[252.31,253.10,252.64,253.85,254.40,253.92,254.78,255.46],
+    '1mo':[232.14,228.90,236.70,239.40,238.10,245.50,247.80,251.20,249.60,255.46],
+    'ytd':[243.50,241.20,222.40,169.20,200.10,201.50,213.30,232.10,255.46],
+    '1y':[227.80,233.50,250.40,243.10,241.20,222.40,169.20,200.10,213.30,232.10,255.46],
+    '5y':[112.30,134.80,148.60,165.20,138.40,155.70,171.20,192.50,171.00,227.80,250.40,169.20,255.46],
+    '10y':[28.70,27.10,38.50,55.90,55.20,112.30,148.60,138.40,171.20,192.50,227.80,255.46]
+  }};
+const MOCK_PE={AAPL:{t:33.8,f:30.2},GOOGL:{t:27.5,f:25.0}};
+function mockSeries(way,n){
+  const out=[];n=n||60;
+  for(let i=0;i<n;i++){const t=i/(n-1)*(way.length-1);const k=Math.floor(t);const f=t-k;
+    const base=way[k]+(way[Math.min(k+1,way.length-1)]-way[k])*f;
+    const wig=Math.sin(i*1.7)*base*0.004+Math.sin(i*0.45)*base*0.006;
+    out.push(+(base+wig).toFixed(2));}
+  out[n-1]=way[way.length-1];return out;
+}
+function renderMockStockCard(){
+  const priceEl=$('#stockPriceVal'),subEl=$('#stockPriceSub'),sparkEl=$('#stockSparkline');
+  if(!priceEl)return;
+  const way=MOCK_STOCK.ranges[state.stockRange]||MOCK_STOCK.ranges['1y'];
+  const series=mockSeries(way,60);
+  const curr=MOCK_STOCK.price,first=series[0];
+  const chg=curr-first,pct=chg/first*100,pos=chg>=0;
+  priceEl.textContent='$'+curr.toFixed(2);
+  if(subEl)subEl.innerHTML='<span style="color:'+(pos?'#3c7a12':'#b0392b')+';font-weight:600">'+(pos?'▲':'▼')+' '+Math.abs(pct).toFixed(1)+'%</span> <span style="opacity:.75">as of '+MOCK_STOCK.asOf+' (FY end)</span>';
+  if(sparkEl)drawStockSparkline(sparkEl,series);
+  const peEl=$('#peVal'),fwdEl=$('#fwdPeVal');
+  if(peEl)peEl.textContent=MOCK_STOCK.trailingPE.toFixed(1)+'x';
+  if(fwdEl)fwdEl.textContent=MOCK_STOCK.forwardPE.toFixed(1)+'x';
 }
 let stockCache={};
 async function loadStockData(ticker,range){
@@ -1005,6 +1136,7 @@ function drawStockSparkline(el,prices){
   el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;max-height:64px;display:block;margin-top:6px"><path d="'+areaPath+'" fill="'+col+'" opacity=".12"/><polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>';
 }
 async function refreshStockCard(ticker){
+  if(state.mockStock){renderMockStockCard();return;}
   const data=await loadStockData(ticker,state.stockRange);
   const parsed=parseYahooChart(data);
   const priceEl=$('#stockPriceVal'),subEl=$('#stockPriceSub'),sparkEl=$('#stockSparkline');
@@ -1021,7 +1153,13 @@ async function refreshStockCard(ticker){
     if(subEl)subEl.textContent='Live data unavailable';
   }
   const peEl=$('#peVal'),fwdEl=$('#fwdPeVal');
-  if(peEl)peEl.textContent=parsed&&parsed.trailingPE?parsed.trailingPE.toFixed(1)+'x':'—';
+  let tpe=parsed&&parsed.trailingPE||null;
+  if(!tpe&&parsed&&parsed.currentPrice){
+    const sh=parseCapStr((model.profile||{}).sharesOutstanding);
+    const ni=model.pnl.netIncome*(UNIT_MULT[model.units]||1);
+    if(sh&&ni>0)tpe=parsed.currentPrice*sh/ni;
+  }
+  if(peEl)peEl.textContent=tpe?tpe.toFixed(1)+'x':'—';
   if(fwdEl)fwdEl.textContent=parsed&&parsed.forwardPE?parsed.forwardPE.toFixed(1)+'x':'—';
 }
 function setStockRange(range){
@@ -1063,7 +1201,7 @@ function metricsFromRaw(raw){
     revCagr:cagrOf(fy,'revenue'),niCagr:cagrOf(fy,'netIncome'),fiveYear:fy,
     assets:(curA+ncA)*mult,liab:(curL+ncL)*mult,equity:eq*mult,
     leverage:eq>0?(curL+ncL)/eq:null,currentRatio:curL>0?curA/curL:null,roe:eq>0?ni/eq*100:null,
-    marketCap:parseCapStr(pf.marketCap),
+    marketCap:parseCapStr(pf.marketCap),shares:parseCapStr(pf.sharesOutstanding),
     industryPE:num(pf.industryPE)||null,industryFwdPE:num(pf.industryForwardPE)||null};
 }
 function baselineMetrics(){return metricsFromRaw(buildExport());}
@@ -1078,7 +1216,7 @@ const COMP_EXAMPLE={
     currentLiabilities:[{name:'Accounts payable',value:12200},{name:'Accrued compensation',value:17546},{name:'Accrued expenses & other',value:65898},{name:'Deferred revenue',value:6578},{name:'Income taxes payable',value:523}],
     nonCurrentLiabilities:[{name:'Long-term debt',value:46547},{name:'Operating lease liabilities',value:12744},{name:'Long-term income taxes',value:9531},{name:'Other long-term liabilities',value:8449}],
     equity:[{name:'Common stock & APIC',value:93126},{name:'Retained earnings',value:324055},{name:'Accum. other comp. loss',value:-1916}]},
-  profile:{ticker:'GOOGL',exchange:'NASDAQ',marketCap:'~$3.5T',industryPE:28,industryForwardPE:24,
+  profile:{ticker:'GOOGL',exchange:'NASDAQ',marketCap:'~$3.5T',sharesOutstanding:'~12.1B',industryPE:28,industryForwardPE:24,
     fiveYearRevenue:[{year:'FY2021',revenue:257637,netIncome:76033},{year:'FY2022',revenue:282836,netIncome:59972},{year:'FY2023',revenue:307394,netIncome:73795},{year:'FY2024',revenue:350018,netIncome:100118},{year:'FY2025',revenue:402836,netIncome:132170}]}
 };
 function loadCompExample(){
@@ -1187,8 +1325,11 @@ function drawCompMargins(A,B){
     svg.append('text').attr('x',x0-14).attr('y',cy+4).attr('text-anchor','end').attr('font-size',13).attr('font-weight',600).attr('fill','#444').text(r[0]);
     svg.append('rect').attr('x',x0).attr('y',cy-trackH/2).attr('width',x1-x0).attr('height',trackH).attr('fill','#f0f0ea').attr('rx',8);
     if(r[1]!=null){
-      svg.append('rect').attr('x',x0).attr('y',cy-trackH/2).attr('width',Math.max(2,sx(r[1])-x0)).attr('height',trackH).attr('fill',COMP_A).attr('rx',8);
-      svg.append('text').attr('x',sx(r[1])+8).attr('y',cy+4).attr('font-size',12).attr('font-weight',700).attr('fill',COMP_A_DARK).text(r[1].toFixed(1)+'%');
+      const bw=Math.max(2,sx(r[1])-x0);
+      svg.append('rect').attr('x',x0).attr('y',cy-trackH/2).attr('width',bw).attr('height',trackH).attr('fill',COMP_A).attr('rx',8);
+      const collide=r[2]!=null&&Math.abs(sx(r[2])-sx(r[1]))<64&&sx(r[2])>=sx(r[1]);
+      const inside=bw>64&&collide;
+      svg.append('text').attr('x',inside?sx(r[1])-8:sx(r[1])+8).attr('y',cy+4).attr('text-anchor',inside?'end':'start').attr('font-size',12).attr('font-weight',700).attr('fill',inside?'#fff':COMP_A_DARK).text(r[1].toFixed(1)+'%');
     }
     if(r[2]!=null){
       svg.append('line').attr('x1',sx(r[2])).attr('y1',cy-15).attr('x2',sx(r[2])).attr('y2',cy+15).attr('stroke',COMP_B).attr('stroke-width',3.5).attr('stroke-linecap','round');
@@ -1198,7 +1339,7 @@ function drawCompMargins(A,B){
 }
 function drawCompIndexed(svgId,A,B,key){
   const svg=d3.select('#'+svgId);if(svg.empty())return;svg.selectAll('*').remove();
-  const W=560,H=250,mL=44,mR=64,mT=16,mB=30;
+  const W=560,H=250,mL=44,mR=118,mT=16,mB=30;
   const mk=m=>{const pts=(m.fiveYear||[]).filter(d=>num(d[key])>0);if(pts.length<2)return null;
     const base=num(pts[0][key]);return pts.map((d,i)=>({i,year:d.year,idx:num(d[key])/base*100}));};
   const sa=mk(A),sb=mk(B);
@@ -1216,12 +1357,20 @@ function drawCompIndexed(svgId,A,B,key){
   const yearsSrc=(sa&&(!sb||sa.length>=sb.length))?sa:sb;
   yearsSrc.forEach(d=>{const yd=d.year.replace(/\D/g,'');svg.append('text').attr('x',x(d.i)).attr('y',H-8).attr('text-anchor','middle').attr('font-size',10.5).attr('fill','#888').text(yd?"'"+yd.slice(-2):d.year);});
   const line=d3.line().x(d=>x(d.i)).y(d=>y(d.idx)).curve(d3.curveMonotoneX);
-  [[sa,COMP_A,COMP_A_DARK,A],[sb,COMP_B,COMP_B,B]].forEach(([s,col,txtCol,m])=>{
-    if(!s)return;
+  const drawn=[[sa,COMP_A,COMP_A_DARK,A],[sb,COMP_B,COMP_B,B]].filter(s=>s[0]);
+  const labY=drawn.map(([s])=>y(s[s.length-1].idx));
+  if(labY.length===2&&Math.abs(labY[0]-labY[1])<34){
+    const mid=(labY[0]+labY[1])/2;
+    if(labY[0]<=labY[1]){labY[0]=mid-17;labY[1]=mid+17;}else{labY[0]=mid+17;labY[1]=mid-17;}
+  }
+  drawn.forEach(([s,col,txtCol,m],di)=>{
     svg.append('path').datum(s).attr('fill','none').attr('stroke',col).attr('stroke-width',2.5).attr('d',line);
     const last=s[s.length-1];
+    const cagr=(Math.pow(last.idx/100,1/(s.length-1))-1)*100;
+    const ly=Math.max(mT+8,Math.min(H-mB-16,labY[di]));
     svg.append('circle').attr('cx',x(last.i)).attr('cy',y(last.idx)).attr('r',3.5).attr('fill',col);
-    svg.append('text').attr('x',x(last.i)+8).attr('y',y(last.idx)+4).attr('font-size',11.5).attr('font-weight',700).attr('fill',txtCol).text((m.ticker||m.name.slice(0,8))+' '+last.idx.toFixed(0));
+    svg.append('text').attr('x',x(last.i)+8).attr('y',ly).attr('font-size',11.5).attr('font-weight',700).attr('fill',txtCol).text((m.ticker||m.name.slice(0,8))+' '+last.idx.toFixed(0));
+    svg.append('text').attr('x',x(last.i)+8).attr('y',ly+13).attr('font-size',10.5).attr('font-weight',600).attr('fill',txtCol).text((cagr>=0?'+':'')+cagr.toFixed(1)+'%/yr CAGR');
   });
 }
 function drawCompRatios(A,B){
@@ -1244,12 +1393,19 @@ function drawCompRatios(A,B){
   });
 }
 async function refreshCompPe(A,B){
-  const pairs=[[A.ticker,'#compPeA','#compFwdA'],[B.ticker,'#compPeB','#compFwdB']];
-  for(const[tk,peSel,fwdSel]of pairs){
+  const pairs=[[A,'#compPeA','#compFwdA'],[B,'#compPeB','#compFwdB']];
+  for(const[m,peSel,fwdSel]of pairs){
     const peEl=$(peSel),fwdEl=$(fwdSel);
-    if(!tk){if(peEl)peEl.textContent='—';if(fwdEl)fwdEl.textContent='—';continue;}
-    const parsed=parseYahooChart(await loadStockData(tk,'1y'));
-    if(peEl)peEl.textContent=parsed&&parsed.trailingPE?parsed.trailingPE.toFixed(1)+'x':'—';
+    if(!m.ticker){if(peEl)peEl.textContent='—';if(fwdEl)fwdEl.textContent='—';continue;}
+    if(state.mockStock&&MOCK_PE[m.ticker]){
+      if(peEl)peEl.textContent=MOCK_PE[m.ticker].t.toFixed(1)+'x';
+      if(fwdEl)fwdEl.textContent=MOCK_PE[m.ticker].f.toFixed(1)+'x';
+      continue;
+    }
+    const parsed=parseYahooChart(await loadStockData(m.ticker,'1y'));
+    let tpe=parsed&&parsed.trailingPE||null;
+    if(!tpe&&parsed&&parsed.currentPrice&&m.shares&&m.ni>0)tpe=parsed.currentPrice*m.shares/m.ni;
+    if(peEl)peEl.textContent=tpe?tpe.toFixed(1)+'x':'—';
     if(fwdEl)fwdEl.textContent=parsed&&parsed.forwardPE?parsed.forwardPE.toFixed(1)+'x':'—';
   }
 }
@@ -1297,6 +1453,11 @@ function renderCompany(){
     }
     h+='</div>';
   }
+  // ── MD&A KPI row ────────────────────────────────────────────────────────────
+  const mkpis=(p.mdaKpis||[]).filter(k=>k.name&&k.value);
+  if(mkpis.length){
+    h+='<div class="mkt-row">'+mkpis.map(k=>'<div class="mkt-card mda"><div class="mkt-card-label">'+esc(k.name)+'</div><div class="mkt-card-val" style="font-size:19px">'+esc(k.value)+'</div>'+(k.sub?'<div class="mkt-card-sub">'+esc(k.sub)+'</div>':'')+'</div>').join('')+'</div>';
+  }
   // ── Business basics cards ───────────────────────────────────────────────────
   const bizCards=[];
   if(p.businessModel)bizCards.push(ovCard('What it does','#86BC25',[p.businessModel]));
@@ -1307,7 +1468,7 @@ function renderCompany(){
   // ── Competitive analysis section ───────────────────────────────────────────
   const hasComp=(p.competitors&&p.competitors.length)||p.marketPosition||p.marketShare;
   const hasPos=(p.positioning||[]).some(z=>z.name);
-  const hasMsb=(p.marketShareBreakdown||[]).some(z=>z.name&&num(z.share)>0);
+  const hasMsb=(p.marketShareBreakdown||[]).some(z=>z.name&&num(z.share)>0)||((p.marketShareMarkets||[]).some(m=>m.market&&m.entries&&m.entries.length));
   if(hasComp||hasPos||hasMsb){
     // Competitors + Cost vs Quality side-by-side
     if(hasComp||hasPos){
@@ -1324,9 +1485,15 @@ function renderCompany(){
     }
     // Market share — full width card with description
     if(hasMsb){
+      const mkts=(p.marketShareMarkets||[]).filter(m=>m.market&&m.entries&&m.entries.length);
       h+='<div class="ov-card findings" style="margin-top:16px">';
-      h+='<h4><span class="pin" style="background:#86BC25"></span>Market share (estimated)</h4>';
-      if(p.marketShare)h+='<div style="font-size:13.5px;color:var(--ink-2);margin-bottom:8px">'+esc(p.marketShare)+'</div>';
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">';
+      h+='<h4 style="margin:0"><span class="pin" style="background:#86BC25"></span>Market share (estimated)</h4>';
+      if(mkts.length>1){
+        h+='<select onchange="setShareMarket(this.selectedIndex)" style="padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:12.5px;background:#fff;color:var(--ink)">'+mkts.map((m,i)=>'<option'+(i===(state.shareMarket||0)?' selected':'')+'>'+esc(m.market)+'</option>').join('')+'</select>';
+      }else if(mkts.length===1){h+='<span style="font-size:12.5px;color:var(--ink-2);font-weight:600">'+esc(mkts[0].market)+'</span>';}
+      h+='</div>';
+      if(p.marketShare)h+='<div style="font-size:13.5px;color:var(--ink-2);margin:8px 0">'+esc(p.marketShare)+'</div>';
       h+='<svg class="viz" id="shareChart" viewBox="0 0 900 380" preserveAspectRatio="xMidYMid meet" style="max-height:380px"></svg></div>';
     }
   }
@@ -1388,7 +1555,7 @@ function simple(label,key,opts){opts=opts||{};const v=getP(key);return '<div cla
 function unitsField(){return '<div class="field"><label>Currency / units</label><input data-field="simple" data-key="currency" style="flex:0 0 70px" value="'+(model.currency||'USD')+'"/><select data-field="simple" data-key="units">'+['billions','millions','thousands','absolute'].map(u=>'<option '+(model.units===u?'selected':'')+'>'+u+'</option>').join('')+'</select></div>';}
 function subBox(rows){return '<div class="subtotals">'+rows.map(r=>'<div class="'+(r[2]?'accent':'')+'"><span>'+r[0]+'</span><span id="'+r[1].slice(1)+'">—</span></div>').join('')+'</div>';}
 function area(label,key){const v=getP(key);return '<div class="field" style="align-items:flex-start"><label style="padding-top:6px">'+label+'</label><textarea data-field="simple" data-key="'+key+'" style="flex:1;min-height:58px;font-size:13px;line-height:1.4">'+esc(v||'')+'</textarea></div>';}
-function emptyProfile(){return {description:'',sector:'',industry:'',headquarters:'',founded:'',employees:'',ticker:'',exchange:'',businessModel:'',segmentation:'',marketPosition:'',marketShare:'',marketCap:'',sharesOutstanding:'',fiscalYearEnd:0,channels:[],competitors:[],differentiation:[],positioning:[],marketShareBreakdown:[],fiveYearRevenue:[]};}
+function emptyProfile(){return {description:'',sector:'',industry:'',headquarters:'',founded:'',employees:'',ticker:'',exchange:'',businessModel:'',segmentation:'',marketPosition:'',marketShare:'',marketCap:'',sharesOutstanding:'',fiscalYearEnd:0,industryPE:0,industryForwardPE:0,mdaKpis:[],channels:[],competitors:[],differentiation:[],positioning:[],marketShareBreakdown:[],marketShareMarkets:[],fiveYearRevenue:[]};}
 function buildEditor(){
   const e=$('#editor');const tab=state.tab;let h='';
   h+=simple('Company','company')+simple('Fiscal year','period',{ph:'FY2024'})+unitsField();
@@ -1403,6 +1570,7 @@ function buildEditor(){
     h+=area('Market position','profile.marketPosition')+simple('Market share','profile.marketShare');
     h+='<h3 class="eh">Cost vs quality (0–100)</h3>'+grid('profile.positioning',[{h:'Player',key:'name'},{h:'Price',key:'cost',num:1},{h:'Quality',key:'quality',num:1}],'Add player');
     h+='<h3 class="eh">Market share (%) — company &amp; top competitors</h3>'+grid('profile.marketShareBreakdown',[{h:'Player',key:'name'},{h:'Share %',key:'share',num:1,w:'34%'}],'Add player');
+    h+='<h3 class="eh">MD&amp;A KPIs</h3>'+grid('profile.mdaKpis',[{h:'KPI',key:'name'},{h:'Value',key:'value',w:'26%'},{h:'Context',key:'sub',w:'30%'}],'Add KPI');
     h+='<h3 class="eh">Five-year revenue</h3>'+grid('profile.fiveYearRevenue',[{h:'Year',key:'year'},{h:'Revenue',key:'revenue',num:1,w:'32%'},{h:'Net income',key:'netIncome',num:1,w:'32%'}],'Add year');
     e.innerHTML=h;updateSub();return;
   }
@@ -1442,13 +1610,13 @@ function updateSub(){
 $('#editor').addEventListener('input',ev=>{
   const el=ev.target,f=el.dataset.field;if(!f)return;
   if(f==='simple'){const k=el.dataset.key;const last=k.split('.').pop();setP(k,STR_KEYS.has(last)?el.value:num(el.value));}
-  else if(f==='group'){const arr=getP(el.dataset.group),i=+el.dataset.idx,key=el.dataset.key;
-    if(key==='name')arr[i][key]=el.value;else if(key==='year')arr[i][key]=el.value;else if(key==='operatingIncome')arr[i][key]=el.value.trim()===''?null:num(el.value);else arr[i][key]=num(el.value);}
+  else if(f==='group'){const grp=el.dataset.group,arr=getP(grp),i=+el.dataset.idx,key=el.dataset.key;
+    if(key==='name'||key==='year'||grp.endsWith('mdaKpis'))arr[i][key]=el.value;else if(key==='operatingIncome')arr[i][key]=el.value.trim()===''?null:num(el.value);else arr[i][key]=num(el.value);}
   renderAll();
 });
 $('#editor').addEventListener('click',ev=>{
   const a=ev.target.dataset.action;if(!a)return;const grp=ev.target.dataset.group,seg=grp.split('.').pop();
-  if(a==='add'){const tmpl=seg==='segments'?{name:'New segment',revenue:0,operatingIncome:null}:seg==='geographies'?{name:'New region',revenue:0}:seg==='fiveYearRevenue'?{year:'',revenue:0,netIncome:null}:seg==='positioning'?{name:'',cost:50,quality:50}:seg==='marketShareBreakdown'?{name:'',share:0}:(seg==='channels'||seg==='competitors'||seg==='differentiation')?{name:''}:{name:'New item',value:0};getP(grp).push(tmpl);buildEditor();renderAll();}
+  if(a==='add'){const tmpl=seg==='segments'?{name:'New segment',revenue:0,operatingIncome:null}:seg==='geographies'?{name:'New region',revenue:0}:seg==='fiveYearRevenue'?{year:'',revenue:0,netIncome:null}:seg==='positioning'?{name:'',cost:50,quality:50}:seg==='marketShareBreakdown'?{name:'',share:0}:seg==='mdaKpis'?{name:'',value:'',sub:''}:(seg==='channels'||seg==='competitors'||seg==='differentiation')?{name:''}:{name:'New item',value:0};getP(grp).push(tmpl);buildEditor();renderAll();}
   else if(a==='del'){getP(grp).splice(+ev.target.dataset.idx,1);buildEditor();renderAll();}
 });
 function setTab(t){
@@ -1496,11 +1664,11 @@ function buildExport(){const m=model;return {company:m.company,period:m.period,p
   balanceSheet:{currentAssets:m.bs.currentAssets,nonCurrentAssets:m.bs.nonCurrentAssets,currentLiabilities:m.bs.currentLiabilities,nonCurrentLiabilities:m.bs.nonCurrentLiabilities,equity:m.bs.equity},
   balanceSheetPrior:m.bsPrior,
   cashFlow:{operating:m.cf.operating,investing:m.cf.investing,financing:m.cf.financing,fxEffect:m.cf.fxEffect,beginningCash:m.cf.beginningCash,endingCash:m.cf.endingCash,netChange:m.cf.reportedNetChange},
-  cashFlowPrior:m.cfPrior,dimensionalCash:m.dimCash,profile:m.profile,narrative:m.narrative};}
+  cashFlowPrior:m.cfPrior,cashFlowNotes:m.cfNotes,dimensionalCash:m.dimCash,profile:m.profile,narrative:m.narrative};}
 $('#exportBtn').addEventListener('click',()=>{if(!hasData()){setStatus('Nothing to export yet — load a filing first.','err');return;}dl(new Blob([JSON.stringify(buildExport(),null,2)],{type:'application/json'}),safeName()+'_data.json');});
 $('#importBtn').addEventListener('click',()=>$('#jsonInput').click());
 $('#jsonInput').addEventListener('change',ev=>{const f=ev.target.files[0];if(!f)return;const r=new FileReader();
-  r.onload=()=>{try{adopt(JSON.parse(r.result));state.pnlMode='consolidated';state.cfMode='consolidated';buildEditor();renderAll();
+  r.onload=()=>{try{adopt(JSON.parse(r.result));state.pnlMode='consolidated';state.cfMode='consolidated';state.mockStock=false;state.shareMarket=0;buildEditor();renderAll();
     if(!hasData()){setStatus('Imported file has no usable figures — check it matches the export format.','err');return;}
     setStatus('Imported '+model.company+(model.period?' · '+model.period:'')+'. Explore the tabs; everything is editable.','ok');
   }catch(e){setStatus('Could not read that JSON ('+e.message+'). Use a file exported from this tool or provided by Claude.','err');}finally{ev.target.value='';}};
