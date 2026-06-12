@@ -90,6 +90,8 @@
   .kpi-delta{font-size:12.5px;margin-top:3px;font-weight:600}
   .kpi-delta.pos{color:#3c7a12}.kpi-delta.neg{color:#b0392b}
   .kpi-sub{font-size:12px;color:var(--ink-2);margin-top:2px;font-weight:400}
+  .kpi-hoverable{cursor:default;transition:border-color .15s}
+  .kpi-hoverable:hover{border-color:var(--dl-green)}
   .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
   .chip{background:#fff;border:1px solid var(--line);color:var(--ink);padding:7px 13px;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer}
   .chip:hover{border-color:var(--dl-green)}
@@ -1111,6 +1113,113 @@ function parseYahooChart(d){
     returnOnAssets:pe.returnOnAssets!=null?pe.returnOnAssets:null,
   };
 }
+let _ovDetailTimer=null;
+function schedHideOvDetail(){_ovDetailTimer=setTimeout(()=>{const d=$('#ovKpiDetail');if(d)d.style.display='none';},200);}
+function keepOvDetail(){if(_ovDetailTimer){clearTimeout(_ovDetailTimer);_ovDetailTimer=null;}}
+function showOvDetail(type){
+  keepOvDetail();
+  const panel=$('#ovKpiDetail');if(!panel)return;
+  panel.style.display='';
+  const title=$('#ovDetailTitle');
+  const svgEl=document.getElementById('ovDetailSvg');if(!svgEl)return;
+  const svgSel=d3.select(svgEl);svgSel.selectAll('*').remove();
+  if(type==='revenue'||type==='netIncome'){
+    if(title)title.textContent=type==='revenue'?'Revenue — five-year trend':'Net income — five-year trend';
+    const fy=(model.profile&&model.profile.fiveYearRevenue||[]).filter(d=>d.revenue>0);
+    let series=fy;
+    if(!series.length){const fb=[];if(model.prior.revenue>0)fb.push({year:model.priorPeriod||'Prior',revenue:model.prior.revenue,netIncome:model.prior.netIncome});if(model.pnl.revenue>0)fb.push({year:model.period||'Current',revenue:model.pnl.revenue,netIncome:model.pnl.netIncome});series=fb;}
+    drawOvLineChart(svgSel,series,type);
+  }else if(type==='assets'){
+    if(title)title.textContent='Assets breakdown';
+    drawOvAssetsWaterfall(svgSel);
+  }else if(type==='cash'){
+    if(title)title.textContent='Cash flow — net change waterfall';
+    drawOvCashWaterfall(svgSel);
+  }
+}
+function drawOvLineChart(svg,series,type){
+  if(!series||!series.length){svg.append('text').attr('x',550).attr('y',130).attr('text-anchor','middle').attr('fill','#999').attr('font-size',13).text('No historical data');return;}
+  const W=1100,H=240,mL=64,mR=70,mT=22,mB=34;
+  svg.attr('viewBox','0 0 '+W+' '+H);
+  const vals=type==='revenue'?series.map(d=>d.revenue):series.map(d=>num(d.netIncome)||0);
+  const mx=Math.max.apply(null,vals)||1;
+  const mn=Math.min.apply(null,[0].concat(vals));
+  const pad=(mx-mn)*.12||1;
+  const x=d3.scaleBand().domain(series.map(d=>d.year)).range([mL,W-mR]).padding(.35);
+  const y=d3.scaleLinear().domain([mn-pad,mx+pad]).range([H-mB,mT]);
+  y.ticks(4).forEach(t=>{svg.append('line').attr('x1',mL).attr('x2',W-mR).attr('y1',y(t)).attr('y2',y(t)).attr('stroke','#eee');
+    svg.append('text').attr('x',mL-8).attr('y',y(t)).attr('dy','.32em').attr('text-anchor','end').attr('font-size',10).attr('fill','#999').text(fmt(t));});
+  svg.append('line').attr('x1',mL).attr('x2',W-mR).attr('y1',y(0)).attr('y2',y(0)).attr('stroke','#ccc').attr('stroke-width',1);
+  const col=type==='revenue'?'#86BC25':'#005587';
+  series.forEach((d,i)=>{
+    const v=vals[i];
+    svg.append('rect').attr('x',x(d.year)).attr('y',y(Math.max(0,v))).attr('width',x.bandwidth()).attr('height',Math.max(1.5,Math.abs(y(v)-y(0)))).attr('fill',col).attr('rx',3).attr('opacity',.85);
+    svg.append('text').attr('x',x(d.year)+x.bandwidth()/2).attr('y',y(Math.max(0,v))-5).attr('text-anchor','middle').attr('font-size',10.5).attr('font-weight',600).attr('fill',v<0?'#b0392b':'#3c5e12').text(fmt(v));
+    svg.append('text').attr('x',x(d.year)+x.bandwidth()/2).attr('y',H-mB+14).attr('text-anchor','middle').attr('font-size',11).attr('fill','#444').text(d.year);
+  });
+  // Hover indicator
+  const hoverG=svg.append('g').style('display','none').attr('pointer-events','none');
+  const hoverLine=hoverG.append('line').attr('y1',mT).attr('y2',H-mB).attr('stroke','#444').attr('stroke-width',1.2).attr('stroke-dasharray','3,2');
+  const hoverCirc=hoverG.append('circle').attr('r',5.5).attr('fill',col).attr('stroke','#fff').attr('stroke-width',2);
+  const hoverBox=hoverG.append('rect').attr('height',28).attr('rx',5).attr('fill','rgba(40,39,40,.88)').attr('stroke','none');
+  const hoverTxt=hoverG.append('text').attr('font-size',11.5).attr('font-weight',600).attr('fill','#fff');
+  svg.append('rect').attr('x',mL).attr('y',mT).attr('width',W-mL-mR).attr('height',H-mT-mB).attr('fill','none').attr('pointer-events','all')
+    .on('mousemove',function(event){
+      const [px]=d3.pointer(event,svg.node());
+      const step=x.step();
+      const idx=Math.max(0,Math.min(series.length-1,Math.floor((px-x.range()[0])/step)));
+      const d=series[idx];const v=vals[idx];
+      const cx=x(d.year)+x.bandwidth()/2,cy=y(v);
+      hoverG.style('display','');
+      hoverLine.attr('x1',cx).attr('x2',cx);
+      hoverCirc.attr('cx',cx).attr('cy',cy);
+      const txt=d.year+': '+fmt(v);const tw=txt.length*7.5+16;
+      let bx=cx+10;if(bx+tw>W-mR)bx=cx-tw-10;
+      const by=Math.max(mT,cy-18);
+      hoverBox.attr('x',bx).attr('y',by).attr('width',tw);
+      hoverTxt.attr('x',bx+8).attr('y',by+19).text(txt);
+    })
+    .on('mouseleave',()=>hoverG.style('display','none'));
+}
+function drawOvWaterfallBars(svg,bars,mB){
+  const W=1100,H=260,mL=64,mR=20,mT=22;
+  mB=mB||90;svg.attr('viewBox','0 0 '+W+' '+H);
+  if(!bars||!bars.length){svg.append('text').attr('x',550).attr('y',130).attr('text-anchor','middle').attr('fill','#999').attr('font-size',13).text('No data');return;}
+  const vals=[0];bars.forEach(b=>{vals.push(b.y0,b.y1);});
+  const mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),pad=(mx-mn)*.08||1;
+  const y=d3.scaleLinear().domain([mn-pad,mx+pad]).range([H-mB,mT]);
+  const x=d3.scaleBand().domain(bars.map((_,i)=>i)).range([mL,W-mR]).padding(.32);
+  y.ticks(5).forEach(tk=>{svg.append('line').attr('x1',mL).attr('x2',W-mR).attr('y1',y(tk)).attr('y2',y(tk)).attr('stroke','#eee');
+    svg.append('text').attr('x',mL-8).attr('y',y(tk)).attr('dy','.32em').attr('text-anchor','end').attr('font-size',10).attr('fill','#999').text(fmt(tk));});
+  svg.append('line').attr('x1',mL).attr('x2',W-mR).attr('y1',y(0)).attr('y2',y(0)).attr('stroke','#bbb').attr('stroke-width',1.2);
+  const seen={};bars.forEach((b,i)=>{if(b.type==='delta'&&!seen[b.group]){seen[b.group]=true;
+    const members=bars.filter(z=>z.group===b.group&&z.type==='delta');const lastIdx=bars.indexOf(members[members.length-1]);
+    svg.append('text').attr('x',(x(i)+x(lastIdx)+x.bandwidth())/2).attr('y',mT-8).attr('text-anchor','middle').attr('font-size',10).attr('font-weight',700).attr('fill','#888').attr('letter-spacing','.04em').text(b.group.toUpperCase());}});
+  for(let i=0;i<bars.length-1;i++){const lvl=bars[i].type==='delta'?bars[i].y1:bars[i].value;
+    svg.append('line').attr('x1',x(i)).attr('x2',x(i+1)+x.bandwidth()).attr('y1',y(lvl)).attr('y2',y(lvl)).attr('stroke','#d3d3d3').attr('stroke-dasharray','2,2');}
+  const bw=x.bandwidth();
+  bars.forEach((b,i)=>{
+    const top=b.type==='delta'?Math.max(b.y0,b.y1):Math.max(0,b.value),bot=b.type==='delta'?Math.min(b.y0,b.y1):Math.min(0,b.value);
+    const col=b.type==='sub'?'#5b5b5b':b.type==='total'?'#4E7D1C':(b.value>=0?'#86BC25':'#C0392B');
+    svg.append('rect').attr('x',x(i)).attr('y',y(top)).attr('width',bw).attr('height',Math.max(1.5,y(bot)-y(top))).attr('fill',col).attr('rx',2).attr('opacity',b.type==='delta'?.92:1)
+      .append('title').text(b.label+': '+fmt(b.value));
+    if(bars.length<=18){const stag=bars.length>9&&(i%2===1)?10:0;
+      svg.append('text').attr('x',x(i)+bw/2).attr('y',y(top)-5-stag).attr('text-anchor','middle').attr('font-size',bars.length>12?8.5:10).attr('font-weight',600).attr('fill',b.value<0?'#b0392b':'#3c7a12').text((b.value>=0?'+':'')+fmt(b.value));}
+    svg.append('text').attr('transform','translate('+(x(i)+bw/2)+','+(H-mB+10)+') rotate(-65)').attr('text-anchor','end').attr('font-size',bars.length>16?7:8).attr('font-weight',b.type==='delta'?400:700).attr('fill','#444').text(b.label);
+  });
+}
+function drawOvAssetsWaterfall(svg){
+  const bs=model.bs;const bars=[];let cum=0;
+  (bs.currentAssets||[]).forEach(item=>{const v=num(item.value);if(v){bars.push({label:item.name,type:'delta',value:v,y0:cum,y1:cum+v,group:'Current'});cum+=v;}});
+  if(cum){bars.push({label:'Current assets',type:'sub',value:cum,y0:0,y1:cum,group:'Current'});}
+  (bs.nonCurrentAssets||[]).forEach(item=>{const v=num(item.value);if(v){bars.push({label:item.name,type:'delta',value:v,y0:cum,y1:cum+v,group:'Non-current'});cum+=v;}});
+  if(cum)bars.push({label:'Total assets',type:'total',value:cum,y0:0,y1:cum,group:'Total'});
+  drawOvWaterfallBars(svg,bars,bars.length>16?110:90);
+}
+function drawOvCashWaterfall(svg){
+  const bars=buildWaterfall();
+  drawOvWaterfallBars(svg,bars,bars.length>16?110:90);
+}
 /* ── Compare tab ──────────────────────────────────────────────────────────── */
 let compRaw=null,compMetrics=null,compLoading=false,compError='',compQuery='';
 const compCache={};
@@ -1409,32 +1518,31 @@ function renderCompany(){
   const hasPos=(p.positioning||[]).some(z=>z.name);
   const hasMsb=(p.marketShareBreakdown||[]).some(z=>z.name&&num(z.share)>0)||((p.marketShareMarkets||[]).some(m=>m.market&&m.entries&&m.entries.length));
   if(hasComp||hasPos||hasMsb){
-    // Competitors + Cost vs Quality side-by-side
-    if(hasComp||hasPos){
-      h+='<div class="comp-row">';
-      if(hasComp){
-        h+='<div class="ov-card"><h4><span class="pin" style="background:#E8A317"></span>Competitors &amp; market position</h4>';
-        if(p.competitors&&p.competitors.length)h+='<div style="margin-bottom:10px">'+p.competitors.map(c=>'<span style="display:inline-block;background:#f0f3ea;border:1px solid #dce6cb;color:#3c5e12;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;margin:0 6px 6px 0">'+esc(c.name)+'</span>').join('')+'</div>';
-        if(p.marketPosition)h+='<div style="font-size:14px;margin-bottom:6px"><b>Position:</b> '+esc(p.marketPosition)+'</div>';
-        if(p.marketShare)h+='<div style="font-size:14px"><b>Share:</b> '+esc(p.marketShare)+'</div>';
-        h+='</div>';
-      }else{h+='<div></div>';}
-      if(hasPos)h+='<div class="ov-card"><h4><span class="pin" style="background:#00A3E0"></span>Cost vs quality</h4><svg class="viz" id="posChart" viewBox="0 0 900 480" preserveAspectRatio="xMidYMid meet" style="max-height:480px"></svg></div>';
+    const mkts=hasMsb?(p.marketShareMarkets||[]).filter(m=>m.market&&m.entries&&m.entries.length):[];
+    const hasLeft=hasComp,hasMid=hasPos,hasRight=hasMsb;
+    let gridCols;
+    if(hasLeft&&hasMid&&hasRight)gridCols='1fr 2fr 1.5fr';
+    else if(!hasLeft&&hasMid&&hasRight)gridCols='2fr 1.5fr';
+    else if(hasLeft&&!hasMid&&hasRight)gridCols='1fr 1.5fr';
+    else if(hasLeft&&hasMid&&!hasRight)gridCols='1fr 2fr';
+    else gridCols='1fr';
+    h+='<div class="comp-row" style="grid-template-columns:'+gridCols+';">';
+    if(hasComp){
+      h+='<div class="ov-card"><h4><span class="pin" style="background:#E8A317"></span>Competitors &amp; market position</h4>';
+      if(p.competitors&&p.competitors.length)h+='<div style="margin-bottom:10px">'+p.competitors.map(c=>'<span style="display:inline-block;background:#f0f3ea;border:1px solid #dce6cb;color:#3c5e12;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;margin:0 6px 6px 0">'+esc(c.name)+'</span>').join('')+'</div>';
+      if(p.marketPosition)h+='<div style="font-size:14px;margin-bottom:6px"><b>Position:</b> '+esc(p.marketPosition)+'</div>';
+      if(p.marketShare)h+='<div style="font-size:14px"><b>Share:</b> '+esc(p.marketShare)+'</div>';
       h+='</div>';
     }
-    // Market share — full width card with description
+    if(hasPos)h+='<div class="ov-card"><h4><span class="pin" style="background:#00A3E0"></span>Cost vs quality</h4><svg class="viz" id="posChart" viewBox="0 0 900 480" preserveAspectRatio="xMidYMid meet" style="max-height:380px"></svg></div>';
     if(hasMsb){
-      const mkts=(p.marketShareMarkets||[]).filter(m=>m.market&&m.entries&&m.entries.length);
-      h+='<div class="ov-card findings" style="margin-top:16px">';
-      h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">';
-      h+='<h4 style="margin:0"><span class="pin" style="background:#86BC25"></span>Market share (estimated)</h4>';
-      if(mkts.length>1){
-        h+='<select onchange="setShareMarket(this.selectedIndex)" style="padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:12.5px;background:#fff;color:var(--ink)">'+mkts.map((m,i)=>'<option'+(i===(state.shareMarket||0)?' selected':'')+'>'+esc(m.market)+'</option>').join('')+'</select>';
-      }else if(mkts.length===1){h+='<span style="font-size:12.5px;color:var(--ink-2);font-weight:600">'+esc(mkts[0].market)+'</span>';}
-      h+='</div>';
-      if(p.marketShare)h+='<div style="font-size:13.5px;color:var(--ink-2);margin:8px 0">'+esc(p.marketShare)+'</div>';
-      h+='<svg class="viz" id="shareChart" viewBox="0 0 900 380" preserveAspectRatio="xMidYMid meet" style="max-height:380px"></svg></div>';
+      h+='<div class="ov-card findings"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
+      h+='<h4 style="margin:0"><span class="pin" style="background:#86BC25"></span>Market share <span style="font-size:11px;font-weight:400;opacity:.7">(est.)</span></h4>';
+      if(mkts.length>1){h+='<select onchange="setShareMarket(this.selectedIndex)" style="padding:4px 8px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:11.5px;background:#fff;color:var(--ink)">'+mkts.map((m,i)=>'<option'+(i===(state.shareMarket||0)?' selected':'')+'>'+esc(m.market)+'</option>').join('')+'</select>';}
+      else if(mkts.length===1){h+='<span style="font-size:11.5px;color:var(--ink-2);font-weight:600">'+esc(mkts[0].market)+'</span>';}
+      h+='</div><svg class="viz" id="shareChart" viewBox="0 0 900 380" preserveAspectRatio="xMidYMid meet" style="max-height:320px;width:100%"></svg></div>';
     }
+    h+='</div>';
   }
   // ── Five-year revenue ───────────────────────────────────────────────────────
   const fy=(p.fiveYearRevenue||[]).filter(d=>d.revenue>0);
@@ -1470,10 +1578,12 @@ function renderOverview(){
   if(n&&n.capitalAllocation&&n.capitalAllocation.length)rowCards.push(ovCard('Capital allocation','#E8A317',n.capitalAllocation));
   if(rowCards.length)gridInner+='<div class="ov-3col">'+rowCards.join('')+'</div>';
   if(!gridInner)gridInner=ovCard('Highlights','#86BC25',autoFindings(),'findings');
-  const snapHtml=snap.map(c=>{let d='';if(c.g!=null){const cl=c.g>=0?'pos':'neg';d='<div class="kpi-delta '+cl+'">'+(c.g>=0?'▲':'▼')+' '+Math.abs(c.g).toFixed(1)+'% YoY</div>';}else if(c.signed!=null){const cl=c.signed>=0?'pos':'neg';d='<div class="kpi-delta '+cl+'">'+(c.signed>=0?'net inflow':'net outflow')+'</div>';}return '<div class="kpi"><div class="kpi-label">'+c.label+'</div><div class="kpi-val">'+c.val+'</div>'+d+'</div>';}).join('');
+  const snapTypes=['revenue','netIncome','assets','cash'];
+  const snapHtml=snap.map((c,idx)=>{let d='';if(c.g!=null){const cl=c.g>=0?'pos':'neg';d='<div class="kpi-delta '+cl+'">'+(c.g>=0?'▲':'▼')+' '+Math.abs(c.g).toFixed(1)+'% YoY</div>';}else if(c.signed!=null){const cl=c.signed>=0?'pos':'neg';d='<div class="kpi-delta '+cl+'">'+(c.signed>=0?'net inflow':'net outflow')+'</div>';}const t=snapTypes[idx];return '<div class="kpi kpi-hoverable" onmouseenter="showOvDetail(\''+t+'\')" onmouseleave="schedHideOvDetail()"><div class="kpi-label">'+c.label+'</div><div class="kpi-val">'+c.val+'</div>'+d+'</div>';}).join('');
   p.innerHTML='<div class="ov-hero">'+rings+'<div class="ov-eyebrow">'+esc(model.period||'Latest fiscal year')+' · 10-K summary</div>'+
     '<div class="ov-headline">'+esc(head)+'</div><div class="ov-summary">'+esc(summary)+'</div></div>'+
     '<div class="kpis" style="margin-top:16px">'+snapHtml+'</div>'+
+    '<div id="ovKpiDetail" style="display:none;margin-bottom:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:hidden" onmouseenter="keepOvDetail()" onmouseleave="schedHideOvDetail()"><div id="ovDetailTitle" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:600;margin-bottom:10px"></div><svg id="ovDetailSvg" viewBox="0 0 1100 260" preserveAspectRatio="xMidYMid meet" style="width:100%;max-height:280px;display:block;overflow:visible"></svg></div>'+
     '<div class="ov-grid">'+gridInner+'</div>'+
     (n?'':'<div class="hint" style="margin-top:14px">Tip: the written overview (findings, outlook, risks) is generated when you structure a filing with Claude. These highlights are derived from the numbers you entered.</div>');
 }
