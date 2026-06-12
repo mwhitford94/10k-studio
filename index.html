@@ -138,10 +138,6 @@
   .cf-layout.with-notes{grid-template-columns:1fr 290px}
   @media(max-width:1000px){.cf-layout.with-notes{grid-template-columns:1fr}}
   .cf-notes{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-top:12px;position:sticky;top:12px}
-  .stock-toggle-track{display:inline-block;width:40px;height:22px;border-radius:11px;background:#d0d5dd;transition:background .2s;flex-shrink:0;position:relative;vertical-align:middle;cursor:pointer}
-  .stock-toggle-track.on{background:var(--dl-green)}
-  .stock-toggle-thumb{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-  .stock-toggle-track.on .stock-toggle-thumb{left:21px}
 </style>
 </head>
 <body>
@@ -178,7 +174,6 @@
     <button data-tab="bs">Balance sheet</button>
     <button data-tab="cf">Cash flow</button>
     <button data-tab="compare">Compare</button>
-    <button data-tab="stock">Stock</button>
   </nav>
 </header>
 <div class="drawer collapsed" id="drawer" style="display:none">
@@ -290,7 +285,6 @@
     </div>
   </section>
   <section class="tabpanel" data-panel="compare" id="comparePanel"></section>
-  <section class="tabpanel" data-panel="stock" id="stockPanel"></section>
   <div class="foot">All views are derived from the structured filing figures, so they always balance. Built for working analysis — verify against the audited filing before relying on it.</div>
 </main>
 <script>
@@ -317,7 +311,7 @@ const model={
   profile:null,
   narrative:null
 };
-const state={tab:'company',pnlMode:'consolidated',cfMode:'consolidated',viewMode:'ttm',stockRange:'1y',shareMarket:0,mockStock:false,stockLive:false};
+const state={tab:'company',pnlMode:'consolidated',cfMode:'consolidated',viewMode:'ttm',shareMarket:0,mockStock:false};
 /* Leave '' to run as-is (paste / import). When you deploy as a real site,
    set this to your serverless function base, e.g. '/api' — that turns the
    "Fetch & structure" button into a live SEC EDGAR pull. */
@@ -1083,57 +1077,7 @@ function drawPie(){
     svg.append('text').attr('x',lx+19).attr('y',ly+11).attr('font-size',12.5).attr('font-weight',isSubject(d.name)?700:400).attr('fill','#333').text(d.name+' · '+pct);
     ly+=23;});
 }
-/* Mock stock data for the example dataset — frozen as of Apple's FY2025 end (Sep 26, 2025). */
-const MOCK_STOCK={asOf:'Sep 26, 2025',price:255.46,trailingPE:33.8,forwardPE:30.2,
-  ranges:{
-    '1d':[252.31,253.10,252.64,253.85,254.40,253.92,254.78,255.46],
-    '1mo':[232.14,228.90,236.70,239.40,238.10,245.50,247.80,251.20,249.60,255.46],
-    'ytd':[243.50,241.20,222.40,169.20,200.10,201.50,213.30,232.10,255.46],
-    '1y':[227.80,233.50,250.40,243.10,241.20,222.40,169.20,200.10,213.30,232.10,255.46],
-    '5y':[112.30,134.80,148.60,165.20,138.40,155.70,171.20,192.50,171.00,227.80,250.40,169.20,255.46],
-    '10y':[28.70,27.10,38.50,55.90,55.20,112.30,148.60,138.40,171.20,192.50,227.80,255.46]
-  }};
 const MOCK_PE={AAPL:{t:33.8,f:30.2},GOOGL:{t:27.5,f:25.0}};
-function mockSeries(way,n){
-  const out=[];n=n||60;
-  for(let i=0;i<n;i++){const t=i/(n-1)*(way.length-1);const k=Math.floor(t);const f=t-k;
-    const base=way[k]+(way[Math.min(k+1,way.length-1)]-way[k])*f;
-    const wig=Math.sin(i*1.7)*base*0.004+Math.sin(i*0.45)*base*0.006;
-    out.push(+(base+wig).toFixed(2));}
-  out[n-1]=way[way.length-1];return out;
-}
-function renderMockStockCard(){
-  const priceEl=$('#stPriceVal'),subEl=$('#stPriceSub'),sparkEl=$('#stSparkline');
-  if(!priceEl)return;
-  const r=state.stockRange;
-  const way=MOCK_STOCK.ranges[r]||MOCK_STOCK.ranges[r==='5d'?'1d':r==='max'?'10y':r]||MOCK_STOCK.ranges['1y'];
-  const series=mockSeries(way,60);
-  const curr=MOCK_STOCK.price,first=series[0];
-  const chg=curr-first,pct=chg/first*100,pos=chg>=0;
-  priceEl.textContent='$'+curr.toFixed(2);
-  if(subEl)subEl.innerHTML='<span style="color:'+(pos?'#3c7a12':'#b0392b')+';font-weight:600">'+(pos?'▲':'▼')+' '+Math.abs(pct).toFixed(1)+'%</span> <span style="opacity:.75">as of '+MOCK_STOCK.asOf+' (FY end)</span>';
-  if(sparkEl)drawStockSparkline(sparkEl,series);
-  const capEl=$('#stMktCap'),capSub=$('#stMktCapSub');
-  if(capEl){capEl.textContent='$3.3T';if(capSub)capSub.textContent='as of '+MOCK_STOCK.asOf;}
-  const peEl=$('#stPE'),fwdEl=$('#stFwdPE');
-  if(peEl)peEl.textContent=MOCK_STOCK.trailingPE.toFixed(1)+'x';
-  if(fwdEl)fwdEl.textContent=MOCK_STOCK.forwardPE.toFixed(1)+'x';
-  const h52=$('#st52High'),l52=$('#st52Low');
-  if(h52)h52.textContent='$260.10';if(l52)l52.textContent='$164.08';
-  const betaEl=$('#stBeta');if(betaEl)betaEl.textContent='1.24';
-  const epsEl=$('#stEPS'),fepsEl=$('#stFwdEPS');
-  if(epsEl)epsEl.textContent='$7.53';if(fepsEl)fepsEl.textContent='$8.55';
-  const pbEl=$('#stPB');if(pbEl)pbEl.textContent='47.2x';
-  const pegEl=$('#stPEG');if(pegEl)pegEl.textContent='3.10';
-  const divEl=$('#stDivYield'),divRateEl=$('#stDivRate');
-  if(divEl)divEl.textContent='0.50%';if(divRateEl)divRateEl.textContent='$1.00 /share';
-  const volEl=$('#stAvgVol');if(volEl)volEl.textContent='67.5M';
-  const srEl=$('#stShortRatio');if(srEl)srEl.textContent='1.8 days';
-  const roeEl=$('#stROE');if(roeEl)roeEl.textContent='151.0%';
-  const pmEl=$('#stProfitMargin');if(pmEl)pmEl.textContent='23.5%';
-  const insEl=$('#stInsider'),instEl=$('#stInstitutional');
-  if(insEl)insEl.textContent='0.06%';if(instEl)instEl.textContent='60.5%';
-}
 let stockCache={};
 async function loadStockData(ticker,range){
   if(!ticker||!BACKEND_URL)return null;
@@ -1166,183 +1110,6 @@ function parseYahooChart(d){
     returnOnEquity:pe.returnOnEquity!=null?pe.returnOnEquity:null,
     returnOnAssets:pe.returnOnAssets!=null?pe.returnOnAssets:null,
   };
-}
-function drawStockSparkline(el,prices){
-  if(!el||!prices||prices.length<2){if(el)el.innerHTML='';return;}
-  const clean=prices.filter(p=>p!=null);if(clean.length<2){el.innerHTML='';return;}
-  const W=270,H=64;
-  const mn=Math.min.apply(null,clean),mx=Math.max.apply(null,clean);
-  const pad=(mx-mn)*.1||Math.abs(mx)*.05||1;
-  const sx=i=>(i/(clean.length-1))*W;
-  const sy=v=>H-((v-(mn-pad))/(mx-mn+2*pad))*H;
-  const pts=clean.map((p,i)=>sx(i)+','+sy(p)).join(' ');
-  const isUp=clean[clean.length-1]>=clean[0];
-  const col=isUp?'#86BC25':'#C0392B';
-  const areaPath=`M 0,${H} `+clean.map((p,i)=>`L ${sx(i)},${sy(p)}`).join(' ')+` L ${W},${H} Z`;
-  el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;max-height:64px;display:block;margin-top:6px"><path d="'+areaPath+'" fill="'+col+'" opacity=".12"/><polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>';
-}
-async function refreshStockCard(ticker){
-  if(state.mockStock){renderMockStockCard();return;}
-  const data=await loadStockData(ticker,state.stockRange);
-  const parsed=parseYahooChart(data);
-  const priceEl=$('#stPriceVal'),subEl=$('#stPriceSub'),sparkEl=$('#stSparkline');
-  if(!priceEl)return;
-  if(parsed&&parsed.currentPrice){
-    const curr=parsed.currentPrice,prev=parsed.prevClose;
-    const chg=(prev&&prev!==curr)?curr-prev:null;
-    const pct=(prev&&chg!=null)?(chg/prev*100):null;
-    priceEl.textContent='$'+curr.toFixed(2);
-    if(chg!=null&&subEl){const pos=chg>=0;subEl.innerHTML='<span style="color:'+(pos?'#3c7a12':'#b0392b')+';font-weight:600">'+(pos?'▲':'▼')+' $'+Math.abs(chg).toFixed(2)+' ('+Math.abs(pct).toFixed(2)+'%)</span>';}
-    if(sparkEl)drawStockSparkline(sparkEl,parsed.prices);
-  }else{
-    priceEl.textContent='—';
-    if(subEl)subEl.textContent='Live data unavailable';
-  }
-  // Market cap
-  const capEl=$('#stMktCap'),capSub=$('#stMktCapSub');
-  if(capEl){
-    if(parsed&&parsed.marketCap){capEl.textContent=fmtAbs(parsed.marketCap);if(capSub)capSub.textContent='Live';}
-    else{const sh=parseCapStr((model.profile||{}).sharesOutstanding);
-      if(parsed&&parsed.currentPrice&&sh){capEl.textContent=fmtAbs(parsed.currentPrice*sh);if(capSub)capSub.textContent='Approx: price × shares';}
-      else{capEl.textContent='—';}
-    }
-  }
-  // P/E
-  const peEl=$('#stPE'),fwdEl=$('#stFwdPE');
-  const sh=parseCapStr((model.profile||{}).sharesOutstanding);
-  let tpe=parsed&&parsed.trailingPE||null;
-  if(!tpe&&parsed&&parsed.currentPrice){
-    const ni=model.pnl.netIncome*(UNIT_MULT[model.units]||1);
-    if(sh&&ni>0)tpe=parsed.currentPrice*sh/ni;
-  }
-  if(peEl)peEl.textContent=tpe?tpe.toFixed(1)+'x':'—';
-  if(fwdEl){
-    let fpe=parsed&&parsed.forwardPE||null,fEst=false;
-    if(!fpe&&(model.profile||{}).forwardPE){fpe=model.profile.forwardPE;fEst=true;}
-    fwdEl.innerHTML=fpe?(fpe.toFixed(1)+'x'+(fEst?' <span style="font-size:11px;font-weight:400;color:var(--ink-2)">est.</span>':'')):'—';
-  }
-  // 52-week range
-  const h52=$('#st52High'),l52=$('#st52Low');
-  if(h52)h52.textContent=parsed&&parsed.fiftyTwoWeekHigh?'$'+parsed.fiftyTwoWeekHigh.toFixed(2):'—';
-  if(l52)l52.textContent=parsed&&parsed.fiftyTwoWeekLow?'$'+parsed.fiftyTwoWeekLow.toFixed(2):'—';
-  // Beta, EPS, P/B, PEG
-  const betaEl=$('#stBeta');if(betaEl)betaEl.textContent=parsed&&parsed.beta!=null?parsed.beta.toFixed(2):'—';
-  const epsEl=$('#stEPS'),fepsEl=$('#stFwdEPS');
-  if(epsEl)epsEl.textContent=parsed&&parsed.trailingEps!=null?'$'+parsed.trailingEps.toFixed(2):'—';
-  if(fepsEl)fepsEl.textContent=parsed&&parsed.forwardEps!=null?'$'+parsed.forwardEps.toFixed(2):'—';
-  const pbEl=$('#stPB');if(pbEl)pbEl.textContent=parsed&&parsed.priceToBook!=null?parsed.priceToBook.toFixed(2)+'x':'—';
-  const pegEl=$('#stPEG');if(pegEl)pegEl.textContent=parsed&&parsed.pegRatio!=null?parsed.pegRatio.toFixed(2):'—';
-  // Dividend
-  const divEl=$('#stDivYield'),divRateEl=$('#stDivRate');
-  if(divEl)divEl.textContent=parsed&&parsed.dividendYield?((parsed.dividendYield*100).toFixed(2)+'%'):'—';
-  if(divRateEl)divRateEl.textContent=parsed&&parsed.dividendRate?'$'+parsed.dividendRate.toFixed(2)+' /share':'';
-  // Volume, short ratio
-  const volEl=$('#stAvgVol');
-  if(volEl)volEl.textContent=parsed&&parsed.averageVolume?fmtAbs(parsed.averageVolume).replace('$',''):'—';
-  const srEl=$('#stShortRatio');if(srEl)srEl.textContent=parsed&&parsed.shortRatio!=null?parsed.shortRatio.toFixed(1)+' days':'—';
-  // ROE, profit margin, ownership
-  const roeEl=$('#stROE');if(roeEl)roeEl.textContent=parsed&&parsed.returnOnEquity!=null?((parsed.returnOnEquity*100).toFixed(1)+'%'):'—';
-  const pmEl=$('#stProfitMargin');if(pmEl)pmEl.textContent=parsed&&parsed.profitMargins!=null?((parsed.profitMargins*100).toFixed(1)+'%'):'—';
-  const insEl=$('#stInsider'),instEl=$('#stInstitutional');
-  if(insEl)insEl.textContent=parsed&&parsed.heldPercentInsiders!=null?((parsed.heldPercentInsiders*100).toFixed(2)+'%'):'—';
-  if(instEl)instEl.textContent=parsed&&parsed.heldPercentInstitutions!=null?((parsed.heldPercentInstitutions*100).toFixed(1)+'%'):'—';
-}
-function setStockRange(range){
-  state.stockRange=range;
-  $$('.stock-range-chip').forEach(b=>b.classList.toggle('active',b.dataset.range===range));
-  const pf=model.profile;if(pf&&pf.ticker&&state.tab==='stock')refreshStockCard(pf.ticker);
-}
-function toggleStockLive(){
-  if(state.stockLive){
-    // Refresh: bust the cache for current ticker+range and re-render
-    const ticker=(model.profile||{}).ticker;
-    if(ticker)delete stockCache[ticker+':'+state.stockRange];
-  }
-  state.stockLive=true;
-  if(state.tab==='stock')renderStock();
-}
-function renderStock(){
-  const el=$('#stockPanel');
-  const p=(model.profile||{});
-  const ticker=p.ticker||(hasData()?'':null);
-  const yahooUrl=ticker?'https://finance.yahoo.com/quote/'+encodeURIComponent(ticker):'https://finance.yahoo.com';
-  const RANGES=['1d','5d','1mo','ytd','1y','5y','10y','max'];
-  const RLABELS=['1D','1W','1M','YTD','1Y','5Y','10Y','Max'];
-  const rings='<svg class="rings" viewBox="0 0 200 200"><circle cx="120" cy="80" r="78" fill="none" stroke="#86BC25" stroke-width="1.2" opacity=".4"/><circle cx="120" cy="80" r="56" fill="none" stroke="#00A3E0" stroke-width="1.2" opacity=".35"/><circle cx="120" cy="80" r="34" fill="none" stroke="#86EB22" stroke-width="1.2" opacity=".35"/></svg>';
-  let h='<div class="ov-hero">'+rings;
-  if(ticker){
-    h+='<div class="ov-eyebrow">Stock data · '+esc(ticker)+'</div>';
-    h+='<div class="ov-headline">'+esc(model.company||ticker)+' <span style="font-size:16px;color:#5a5a5a;font-weight:600">('+esc(ticker)+')</span></div>';
-  }else{
-    h+='<div class="ov-eyebrow">Stock data</div>';
-    h+='<div class="ov-headline">Load a filing to see stock data</div>';
-    h+='<div class="ov-summary">Structure a 10-K with Claude (or load the example) to populate the stock data tab.</div>';
-  }
-  h+='</div>';
-  // Yahoo Finance link + load button — always visible
-  const linkSvg='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:5px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-top:16px">';
-  h+='<a href="'+esc(yahooUrl)+'" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-weight:700;font-size:14.5px;color:var(--dl-green-dark);text-decoration:none">'+linkSvg+(ticker?'View '+esc(ticker)+' on Yahoo Finance':'Yahoo Finance')+'</a>';
-  if(ticker){
-    if(state.stockLive){
-      h+='<button class="b b-ghost" onclick="toggleStockLive()" style="font-size:13px">Refresh data</button>';
-    }else{
-      h+='<button class="b b-primary" onclick="toggleStockLive()" style="font-size:13px">Load live stock data</button>';
-    }
-  }
-  h+='</div>';
-  if(ticker&&state.stockLive){
-    const indPE=p.industryPE?p.industryPE.toFixed(1)+'x':'—';
-    const indFwd=p.industryForwardPE?p.industryForwardPE.toFixed(1)+'x':'—';
-    // Price + range chips + sparkline
-    h+='<div class="mkt-row" style="margin-top:16px">';
-    h+='<div class="mkt-card" style="grid-column:span 2">';
-    h+='<div class="mkt-card-label">Stock price <span style="font-weight:400;opacity:.65">('+esc(ticker)+')</span></div>';
-    h+='<div class="mkt-card-val" id="stPriceVal">…</div><div class="mkt-card-sub" id="stPriceSub">&nbsp;</div>';
-    h+='<div style="display:flex;gap:4px;flex-wrap:wrap;margin:8px 0 4px">'+RANGES.map((r,i)=>'<button class="chip stock-range-chip'+(state.stockRange===r?' active':'')+'" data-range="'+r+'" onclick="setStockRange(\''+r+'\')" style="padding:3px 9px;font-size:11px;border-radius:5px">'+RLABELS[i]+'</button>').join('')+'</div>';
-    h+='<div id="stSparkline"></div></div>';
-    // Market cap
-    h+='<div class="mkt-card"><div class="mkt-card-label">Market cap</div><div class="mkt-card-val" id="stMktCap">…</div><div class="mkt-card-sub" id="stMktCapSub">&nbsp;</div></div>';
-    // 52-week range
-    h+='<div class="mkt-card"><div class="mkt-card-label">52-week range</div><div style="margin-top:8px;display:grid;gap:6px">';
-    h+='<div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:var(--ink-2)">High</span><span id="st52High" style="font-weight:700;font-variant-numeric:tabular-nums">…</span></div>';
-    h+='<div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:var(--ink-2)">Low</span><span id="st52Low" style="font-weight:700;font-variant-numeric:tabular-nums">…</span></div>';
-    h+='</div></div>';
-    h+='</div>';
-    // Valuation row
-    h+='<div class="mkt-row" style="margin-top:16px">';
-    h+='<div class="mkt-card"><div class="mkt-card-label">P/E (TTM)</div><div class="mkt-card-val" id="stPE">…</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Forward P/E</div><div class="mkt-card-val" id="stFwdPE">…</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Industry P/E <span style="font-size:10px;font-weight:400;opacity:.7">(est.)</span></div><div class="mkt-card-val">'+indPE+'</div><div class="mkt-card-sub">From filing / Claude estimate</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Industry Fwd P/E <span style="font-size:10px;font-weight:400;opacity:.7">(est.)</span></div><div class="mkt-card-val">'+indFwd+'</div><div class="mkt-card-sub">From filing / Claude estimate</div></div>';
-    h+='</div>';
-    // Per-share & multiples row
-    h+='<div class="mkt-row" style="margin-top:16px">';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Beta</div><div class="mkt-card-val" id="stBeta">…</div><div class="mkt-card-sub">Volatility vs. market</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">EPS (TTM)</div><div class="mkt-card-val" id="stEPS">…</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Forward EPS</div><div class="mkt-card-val" id="stFwdEPS">…</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Price / Book</div><div class="mkt-card-val" id="stPB">…</div></div>';
-    h+='</div>';
-    // Income / yield / liquidity row
-    h+='<div class="mkt-row" style="margin-top:16px">';
-    h+='<div class="mkt-card"><div class="mkt-card-label">PEG ratio</div><div class="mkt-card-val" id="stPEG">…</div><div class="mkt-card-sub">P/E ÷ growth</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Dividend yield</div><div class="mkt-card-val" id="stDivYield">…</div><div class="mkt-card-sub" id="stDivRate"></div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Avg daily volume</div><div class="mkt-card-val" id="stAvgVol">…</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Short ratio</div><div class="mkt-card-val" id="stShortRatio">…</div><div class="mkt-card-sub">Days to cover</div></div>';
-    h+='</div>';
-    // Fundamentals row
-    h+='<div class="mkt-row" style="margin-top:16px">';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Return on equity</div><div class="mkt-card-val" id="stROE">…</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Profit margin</div><div class="mkt-card-val" id="stProfitMargin">…</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Insider ownership</div><div class="mkt-card-val" id="stInsider">…</div></div>';
-    h+='<div class="mkt-card"><div class="mkt-card-label">Institutional ownership</div><div class="mkt-card-val" id="stInstitutional">…</div></div>';
-    h+='</div>';
-    h+='<div class="hint" style="margin-top:14px">Live data sourced from Yahoo Finance. Verify before relying on these figures.</div>';
-  }else if(ticker){
-    h+='<div style="text-align:center;padding:48px 24px;color:var(--ink-2);font-size:14px">Enable <b>Load live stock data</b> above to view stock metrics for '+esc(ticker)+'.</div>';
-  }
-  el.innerHTML=h;
-  if(ticker&&state.stockLive)refreshStockCard(ticker);
 }
 /* ── Compare tab ──────────────────────────────────────────────────────────── */
 let compRaw=null,compMetrics=null,compLoading=false,compError='',compQuery='';
@@ -1624,6 +1391,7 @@ function renderCompany(){
   const fyeName=fyM?['January','February','March','April','May','June','July','August','September','October','November','December'][fyM-1]:null;
   const facts=[['Headquarters',p.headquarters],['Founded',p.founded],['Employees',p.employees],['Ticker',p.ticker],['FY year end',fyeName]].filter(f=>f[1]);
   if(facts.length)h+='<div class="kpis" style="margin-top:16px">'+facts.map(f=>fact(f[0],f[1])).join('')+'</div>';
+  if(p.ticker){const yhUrl='https://finance.yahoo.com/quote/'+p.ticker;h+='<div style="margin-top:10px"><a href="'+yhUrl+'" target="_blank" rel="noopener" style="font-size:13px;font-weight:600;color:var(--dl-green-dark);text-decoration:none">View '+esc(p.ticker)+' on Yahoo Finance ↗</a></div>';}
   // ── MD&A KPI row ────────────────────────────────────────────────────────────
   const mkpis=(p.mdaKpis||[]).filter(k=>k.name&&k.value);
   if(mkpis.length){
@@ -1801,7 +1569,6 @@ function renderActive(){
   else if(state.tab==='bs'){renderBsKpis();renderBsWarn();renderTreemap();}
   else if(state.tab==='cf'){renderCfKpis();renderCfModes();renderWaterfall();}
   else if(state.tab==='compare')renderCompare();
-  else if(state.tab==='stock')renderStock();
 }
 function renderAll(){
   recompute();updateSub();
