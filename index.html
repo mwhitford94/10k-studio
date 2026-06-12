@@ -1253,7 +1253,12 @@ function setStockRange(range){
   const pf=model.profile;if(pf&&pf.ticker&&state.tab==='stock')refreshStockCard(pf.ticker);
 }
 function toggleStockLive(){
-  state.stockLive=!state.stockLive;
+  if(state.stockLive){
+    // Refresh: bust the cache for current ticker+range and re-render
+    const ticker=(model.profile||{}).ticker;
+    if(ticker)delete stockCache[ticker+':'+state.stockRange];
+  }
+  state.stockLive=true;
   if(state.tab==='stock')renderStock();
 }
 function renderStock(){
@@ -1274,16 +1279,16 @@ function renderStock(){
     h+='<div class="ov-summary">Structure a 10-K with Claude (or load the example) to populate the stock data tab.</div>';
   }
   h+='</div>';
-  // Yahoo Finance link + live toggle bar — always visible
+  // Yahoo Finance link + load button — always visible
   const linkSvg='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:5px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
   h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-top:16px">';
   h+='<a href="'+esc(yahooUrl)+'" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-weight:700;font-size:14.5px;color:var(--dl-green-dark);text-decoration:none">'+linkSvg+(ticker?'View '+esc(ticker)+' on Yahoo Finance':'Yahoo Finance')+'</a>';
   if(ticker){
-    const on=state.stockLive;
-    h+='<label onclick="toggleStockLive()" style="display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none;font-size:13.5px;font-weight:600;color:var(--ink)">';
-    h+='<div class="stock-toggle-track'+(on?' on':'')+'"><div class="stock-toggle-thumb"></div></div>';
-    h+=(on?'Showing live data':'Load live stock data');
-    h+='</label>';
+    if(state.stockLive){
+      h+='<button class="b b-ghost" onclick="toggleStockLive()" style="font-size:13px">Refresh data</button>';
+    }else{
+      h+='<button class="b b-primary" onclick="toggleStockLive()" style="font-size:13px">Load live stock data</button>';
+    }
   }
   h+='</div>';
   if(ticker&&state.stockLive){
