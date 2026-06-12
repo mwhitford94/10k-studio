@@ -124,19 +124,56 @@ async function getYahooSession(headers) {
   } catch (_) { return null; }
 }
 
-// Best-effort P/E (trailing + forward) from Yahoo. Forward P/E needs analyst
+// Best-effort stock metrics from Yahoo quoteSummary. Forward P/E needs analyst
 // estimates, which no free official API provides — so this stays opportunistic.
 async function getYahooPE(ticker, headers, session) {
   if (!session || !session.crumb) return null;
   try {
     const h = Object.assign({}, headers, { Cookie: session.cookie });
-    const qs = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail&crumb=${encodeURIComponent(session.crumb)}`, { headers: h });
+    const modules = 'summaryDetail,defaultKeyStatistics,financialData,price,summaryProfile';
+    const qs = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=${modules}&crumb=${encodeURIComponent(session.crumb)}`, { headers: h });
     if (!qs.ok) return null;
     const qj = await qs.json();
-    const sd = (qj && qj.quoteSummary && qj.quoteSummary.result && qj.quoteSummary.result[0] && qj.quoteSummary.result[0].summaryDetail) || {};
+    const r = (qj && qj.quoteSummary && qj.quoteSummary.result && qj.quoteSummary.result[0]) || {};
+    const sd = r.summaryDetail || {};
+    const dk = r.defaultKeyStatistics || {};
+    const fd = r.financialData || {};
+    const pr = r.price || {};
+    const sp = r.summaryProfile || {};
+    const g = (obj, key) => (obj[key] && obj[key].raw != null) ? obj[key].raw : null;
     return {
-      trailingPE: (sd.trailingPE && sd.trailingPE.raw) || null,
-      forwardPE: (sd.forwardPE && sd.forwardPE.raw) || null
+      trailingPE: g(sd, 'trailingPE'),
+      forwardPE: g(sd, 'forwardPE'),
+      beta: g(sd, 'beta'),
+      fiftyTwoWeekHigh: g(sd, 'fiftyTwoWeekHigh'),
+      fiftyTwoWeekLow: g(sd, 'fiftyTwoWeekLow'),
+      dividendYield: g(sd, 'dividendYield'),
+      dividendRate: g(sd, 'dividendRate'),
+      payoutRatio: g(sd, 'payoutRatio'),
+      marketCap: g(sd, 'marketCap') || g(pr, 'marketCap'),
+      volume: g(sd, 'volume') || g(pr, 'regularMarketVolume'),
+      averageVolume: g(sd, 'averageVolume'),
+      trailingEps: g(dk, 'trailingEps'),
+      forwardEps: g(dk, 'forwardEps'),
+      priceToBook: g(dk, 'priceToBook'),
+      pegRatio: g(dk, 'pegRatio'),
+      enterpriseValue: g(dk, 'enterpriseValue'),
+      sharesOutstanding: g(dk, 'sharesOutstanding'),
+      floatShares: g(dk, 'floatShares'),
+      shortRatio: g(dk, 'shortRatio'),
+      heldPercentInsiders: g(dk, 'heldPercentInsiders'),
+      heldPercentInstitutions: g(dk, 'heldPercentInstitutions'),
+      profitMargins: g(fd, 'profitMargins'),
+      returnOnEquity: g(fd, 'returnOnEquity'),
+      returnOnAssets: g(fd, 'returnOnAssets'),
+      revenueGrowth: g(fd, 'revenueGrowth'),
+      earningsGrowth: g(fd, 'earningsGrowth'),
+      debtToEquity: g(fd, 'debtToEquity'),
+      currentRatio: g(fd, 'currentRatio'),
+      totalDebt: g(fd, 'totalDebt'),
+      freeCashflow: g(fd, 'freeCashflow'),
+      industry: sp.industry || null,
+      sector: sp.sector || null,
     };
   } catch (_) { return null; }
 }
